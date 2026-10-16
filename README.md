@@ -33,6 +33,8 @@ docker build -t deutschfremsprache-api ./backend
 docker run -p 8080:8080 --env-file backend/.env deutschfremsprache-api
 ```
 
+**Railway:** trong Settings của service, đặt **Root Directory = `backend`**. Railway sẽ build bằng `backend/Dockerfile` theo [`backend/railway.json`](backend/railway.json), có health check `/api/health`. Nếu Railway vẫn dùng Railpack, đặt *Config file path* = `/backend/railway.json`. Đừng để Root Directory là `backend/cmd/server`: ở đó Go không thấy `go.mod` nên build sẽ lỗi. Railway tự cấp biến `PORT`; Postgres có thể thêm từ Railway, rồi trỏ `DATABASE_URL` vào đó.
+
 Muốn chạy thử API cùng Postgres trên máy: `make docker`. Cần đặt các biến sau cho backend:
 
 | Biến | Ví dụ | Vì sao |

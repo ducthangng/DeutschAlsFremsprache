@@ -17,8 +17,8 @@ COPY --from=build /out/server /app/server
 COPY --from=build --chown=nonroot:nonroot /out/data /data
 ENV PORT=8080 \
     DATA_DIR=/data
-# DATA_DIR only holds files when S3 is not configured; mount a volume there in that case.
-VOLUME ["/data"]
+# DATA_DIR only holds files when S3 is not configured. No volume instruction here
+# (Railway rejects it): attach a Railway Volume / docker -v at /data if needed.
 EXPOSE 8080
 USER nonroot
 ENTRYPOINT ["/app/server"]
