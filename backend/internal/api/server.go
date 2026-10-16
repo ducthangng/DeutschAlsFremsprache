@@ -281,19 +281,36 @@ func corsAllowed(allowed []string, origin string) bool {
 	return false
 }
 
+// parseOrigins reads CORS_ORIGIN forgivingly: comma-separated, quotes and
+// trailing slashes ignored, "https://" assumed when no scheme is given.
+func parseOrigins(raw string) []string {
+	var out []string
+	for _, o := range strings.Split(raw, ",") {
+		o = strings.TrimRight(strings.Trim(strings.TrimSpace(o), `"'`), "/")
+		if o == "" {
+			continue
+		}
+		if o != "*" && !strings.Contains(o, "://") {
+			o = "https://" + o
+		}
+		out = append(out, o)
+	}
+	return out
+}
+
 // cors lets a frontend on another origin (e.g. Vercel) call the API.
 func (s *Server) cors(next http.Handler) http.Handler {
-	var allowed []string
-	for _, o := range strings.Split(s.cfg.CORSOrigin, ",") {
-		if o = strings.TrimRight(strings.TrimSpace(o), "/"); o != "" {
-			allowed = append(allowed, o)
-		}
-	}
+	allowed := parseOrigins(s.cfg.CORSOrigin)
 	if len(allowed) == 0 {
+		log.Println("CORS_ORIGIN not set: browsers on other domains (e.g. a Vercel frontend) cannot call this API")
 		return next
 	}
+	log.Printf("CORS: allowing %s", strings.Join(allowed, ", "))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
+		if origin != "" && !corsAllowed(allowed, origin) && r.Method == http.MethodOptions {
+			log.Printf("CORS: rejected origin %q (not in CORS_ORIGIN)", origin)
+		}
 		if origin != "" && corsAllowed(allowed, origin) {
 			h := w.Header()
 			h.Set("Access-Control-Allow-Origin", origin)

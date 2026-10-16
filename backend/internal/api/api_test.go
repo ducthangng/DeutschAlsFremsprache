@@ -334,3 +334,14 @@ func TestCORSAllowed(t *testing.T) {
 		}
 	}
 }
+
+func TestParseOrigins(t *testing.T) {
+	got := parseOrigins(` "https://speak.ducthang.dev/", speak.example.com ,*.vercel.app,`)
+	want := []string{"https://speak.ducthang.dev", "https://speak.example.com", "https://*.vercel.app"}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("got %v", got)
+	}
+	if !corsAllowed(got, "https://speak.ducthang.dev") || !corsAllowed(got, "https://x-git-main.vercel.app") {
+		t.Fatal("expected allowed")
+	}
+}
