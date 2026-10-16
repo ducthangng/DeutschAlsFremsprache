@@ -24,7 +24,26 @@ make dev-frontend   # terminal 2: mở http://localhost:5173
 
 Bản production là một binary duy nhất phục vụ cả API lẫn frontend: `make run`, rồi mở http://localhost:8080.
 
-**Docker:** `make docker` (tương đương `docker compose --profile app up --build`) build image (khoảng 17 MB, distroless, chạy bằng user non-root) và chạy cùng Postgres. Cấu hình đọc từ `backend/.env`. Nếu không dùng S3, file được lưu trong volume `appdata`. Để triển khai ở nơi khác, build image bằng `docker build -t deutschfremsprache .` rồi truyền biến môi trường (`DATABASE_URL`, `JWT_SECRET`, các key…) khi chạy.
+## Triển khai: frontend trên Vercel, backend bằng Docker
+
+**Backend (Docker).** Chỉ có một Dockerfile, cho API: [`backend/Dockerfile`](backend/Dockerfile). Image khoảng 17 MB (distroless, chạy bằng user non-root).
+
+```bash
+docker build -t deutschfremsprache-api ./backend
+docker run -p 8080:8080 --env-file backend/.env deutschfremsprache-api
+```
+
+Muốn chạy thử API cùng Postgres trên máy: `make docker`. Cần đặt các biến sau cho backend:
+
+| Biến | Ví dụ | Vì sao |
+|---|---|---|
+| `DATABASE_URL` | `postgres://…` | Postgres của môi trường production |
+| `JWT_SECRET` | chuỗi ngẫu nhiên dài | Ký token đăng nhập |
+| `CORS_ORIGIN` | `https://deutsch.example.com,https://*.vercel.app` | Cho phép frontend trên Vercel gọi API. Dấu `*` cho phép cả các bản preview |
+| `PUBLIC_URL` | `https://api.example.com` | Để link ảnh và audio là link tuyệt đối, frontend ở domain khác vẫn tải được |
+| `S3_BUCKET`, `AWS_*` | | Nên dùng. Nếu không có S3, file nằm ở `/data`, nên mount volume vào đó |
+
+**Frontend (Vercel).** Import repo, đặt **Root Directory = `frontend`**. Vercel tự nhận Vite, và [`frontend/vercel.json`](frontend/vercel.json) chuyển mọi đường dẫn về `index.html` để các link như `/topics/12` hoạt động. Đặt biến môi trường **`VITE_API_URL=https://api.example.com`** (xem `frontend/.env.example`). Khi phát triển ở máy, để trống biến này: Vite tự proxy `/api` sang `localhost:8080`.
 
 > Không commit `backend/.env`: file này đã nằm trong `.gitignore`, cũng như dữ liệu runtime (`backend/data/`), binary và các thư mục build.
 

@@ -27,5 +27,5 @@ build:
 run: db build           ## single binary serving API + frontend on :8080
 	cd backend && ./bin/server
 
-docker:                 ## build and run everything in Docker (uses backend/.env)
+docker:                 ## build and run the backend API + Postgres in Docker (uses backend/.env)
 	docker compose --profile app up --build

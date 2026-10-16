@@ -44,7 +44,7 @@ func New(ctx context.Context, cfg config.Config, st *store.Store) (*Server, erro
 	if cfg.TranslatorKey != "" {
 		tr = &translate.Azure{Key: cfg.TranslatorKey, Region: cfg.TranslatorRegion, USDPerMillionChars: cfg.TranslatorUSDPerMillion}
 	}
-	var media storage.Storage = &storage.Local{Dir: filepath.Join(cfg.DataDir, "media"), BaseURL: mediaPath, Secret: []byte(cfg.JWTSecret)}
+	var media storage.Storage = &storage.Local{Dir: filepath.Join(cfg.DataDir, "media"), BaseURL: mediaPath, PublicURL: cfg.PublicURL, Secret: []byte(cfg.JWTSecret)}
 	if cfg.S3Bucket != "" {
 		s3, err := storage.NewS3(ctx, storage.S3Config{Bucket: cfg.S3Bucket, Region: cfg.S3Region, Prefix: cfg.S3Prefix,
 			Endpoint: cfg.S3Endpoint, AccessKey: cfg.AWSAccessKey, SecretKey: cfg.AWSSecretKey})
@@ -265,17 +265,47 @@ func (s *Server) MigrateLocalRecordings(ctx context.Context) {
 	log.Printf("moved %d/%d local recordings to %s storage", moved, len(legacy), s.media.Name())
 }
 
+// corsAllowed matches an Origin against CORS_ORIGIN: a comma-separated list
+// of exact origins or "scheme://*.domain" wildcards (e.g. Vercel previews).
+func corsAllowed(allowed []string, origin string) bool {
+	for _, a := range allowed {
+		if a == "*" || a == origin {
+			return true
+		}
+		if scheme, host, ok := strings.Cut(a, "://*."); ok {
+			if rest, ok := strings.CutPrefix(origin, scheme+"://"); ok && strings.HasSuffix(rest, "."+host) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// cors lets a frontend on another origin (e.g. Vercel) call the API.
 func (s *Server) cors(next http.Handler) http.Handler {
-	if s.cfg.CORSOrigin == "" {
+	var allowed []string
+	for _, o := range strings.Split(s.cfg.CORSOrigin, ",") {
+		if o = strings.TrimRight(strings.TrimSpace(o), "/"); o != "" {
+			allowed = append(allowed, o)
+		}
+	}
+	if len(allowed) == 0 {
 		return next
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", s.cfg.CORSOrigin)
-		w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		if r.Method == http.MethodOptions {
-			w.WriteHeader(http.StatusNoContent)
-			return
+		origin := r.Header.Get("Origin")
+		if origin != "" && corsAllowed(allowed, origin) {
+			h := w.Header()
+			h.Set("Access-Control-Allow-Origin", origin)
+			h.Add("Vary", "Origin")
+			h.Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
+			h.Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+			h.Set("Access-Control-Expose-Headers", "Content-Disposition") // download file names
+			h.Set("Access-Control-Max-Age", "600")
+			if r.Method == http.MethodOptions {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
 		}
 		next.ServeHTTP(w, r)
 	})
@@ -313,7 +343,7 @@ func spaHandler(dir string) http.Handler {
 		}
 		index := filepath.Join(dir, "index.html")
 		if _, err := os.Stat(index); err != nil {
-			http.Error(w, "frontend not built: run `npm run build` in frontend/ or use the Vite dev server", http.StatusNotFound)
+			http.Error(w, "this server only serves the API under /api (the frontend is deployed separately)", http.StatusNotFound)
 			return
 		}
 		http.ServeFile(w, r, index)

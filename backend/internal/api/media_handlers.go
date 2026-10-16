@@ -39,7 +39,8 @@ func (s *Server) imageURL(key string) string {
 	}
 	day := int64(24 * time.Hour / time.Second)
 	exp := (time.Now().Unix()/day + 2) * day
-	return imagePath + key + "?" + url.Values{"exp": {strconv.FormatInt(exp, 10)}, "sig": {s.signImage(key, exp)}}.Encode()
+	// Absolute when PUBLIC_URL is set, so a frontend on another domain can load it.
+	return s.cfg.PublicURL + imagePath + key + "?" + url.Values{"exp": {strconv.FormatInt(exp, 10)}, "sig": {s.signImage(key, exp)}}.Encode()
 }
 
 func (s *Server) signImage(key string, exp int64) string {

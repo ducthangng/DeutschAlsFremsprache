@@ -398,6 +398,9 @@ export const LANGUAGES: Record<Language, { label: string; flag: string }> = {
   "en-US": { label: "Tiếng Anh", flag: "🇺🇸" },
 };
 
+/** Backend origin when the frontend is hosted elsewhere (Vercel); "" = same origin / Vite proxy. */
+const API_BASE = (import.meta.env.VITE_API_URL ?? "").replace(/\/$/, "");
+
 const TOKEN_KEY = "dfs.token";
 
 export function getToken(): string | null {
@@ -432,7 +435,7 @@ async function request(path: string, init: RequestInit = {}): Promise<Response> 
   const headers = new Headers(init.headers);
   const token = getToken();
   if (token) headers.set("Authorization", `Bearer ${token}`);
-  const res = await fetch(`/api${path}`, { ...init, headers });
+  const res = await fetch(`${API_BASE}/api${path}`, { ...init, headers });
   if (!res.ok) {
     let msg = res.statusText;
     try {

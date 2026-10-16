@@ -124,9 +124,10 @@ func (s *S3) URL(ctx context.Context, key string, ttl time.Duration) (string, er
 // Local stores files under Dir and serves them through ServeHTTP with
 // HMAC-signed, expiring URLs (the browser's <audio> cannot send auth headers).
 type Local struct {
-	Dir     string
-	BaseURL string // path the handler is mounted on, e.g. "/api/media/"
-	Secret  []byte
+	Dir       string
+	BaseURL   string // path the handler is mounted on, e.g. "/api/media/"
+	PublicURL string // optional absolute origin prepended to URLs (API on its own domain)
+	Secret    []byte
 }
 
 func (l *Local) Name() string { return "local" }
@@ -193,7 +194,7 @@ func (l *Local) sign(key string, exp int64) string {
 
 func (l *Local) URL(_ context.Context, key string, ttl time.Duration) (string, error) {
 	exp := time.Now().Add(ttl).Unix()
-	return l.BaseURL + key + "?" + url.Values{"exp": {strconv.FormatInt(exp, 10)}, "sig": {l.sign(key, exp)}}.Encode(), nil
+	return l.PublicURL + l.BaseURL + key + "?" + url.Values{"exp": {strconv.FormatInt(exp, 10)}, "sig": {l.sign(key, exp)}}.Encode(), nil
 }
 
 // ServeHTTP serves a file if its URL signature is valid and unexpired.

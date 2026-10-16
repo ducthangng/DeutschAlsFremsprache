@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/joho/godotenv"
 )
@@ -18,7 +19,8 @@ type Config struct {
 	DataDir          string
 	StaticDir        string
 	JWTSecret        string
-	CORSOrigin       string
+	CORSOrigin       string // comma-separated; "https://*.vercel.app" style wildcards allowed
+	PublicURL        string // absolute base of this API, e.g. https://api.example.com (for media links)
 	AzureKey         string
 	AzureRegion      string
 	TranslatorKey    string
@@ -116,6 +118,7 @@ func loadEnv() Config {
 		StaticDir:        env("STATIC_DIR", "../frontend/dist"),
 		JWTSecret:        env("JWT_SECRET", "dev-secret-change-me"),
 		CORSOrigin:       env("CORS_ORIGIN", ""),
+		PublicURL:        strings.TrimRight(env("PUBLIC_URL", ""), "/"),
 		AzureKey:         env("AZURE_SPEECH_KEY", ""),
 		AzureRegion:      env("AZURE_SPEECH_REGION", ""),
 		TranslatorKey:    env("AZURE_TRANSLATOR_KEY", ""),

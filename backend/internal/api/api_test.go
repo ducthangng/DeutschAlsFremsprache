@@ -319,3 +319,18 @@ func wavFiles(t *testing.T, dir string) []string {
 	})
 	return out
 }
+
+func TestCORSAllowed(t *testing.T) {
+	allowed := []string{"https://deutsch.example.com", "https://*.vercel.app"}
+	for origin, want := range map[string]bool{
+		"https://deutsch.example.com":        true,
+		"https://my-app-git-main.vercel.app": true,
+		"http://my-app.vercel.app":           false,
+		"https://vercel.app.evil.com":        false,
+		"https://evil.com":                   false,
+	} {
+		if got := corsAllowed(allowed, origin); got != want {
+			t.Errorf("%s: got %v want %v", origin, got, want)
+		}
+	}
+}

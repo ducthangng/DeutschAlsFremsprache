@@ -19,7 +19,7 @@ services:
   # Development normally uses `make dev-backend` / `make dev-frontend` instead.
   app:
     profiles: ["app"]
-    build: .
+    build: ./backend
     env_file:
       - path: backend/.env
         required: false
