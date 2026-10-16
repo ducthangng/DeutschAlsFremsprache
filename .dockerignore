@@ -1,0 +1,27 @@
+# Keep the build context small and free of secrets and local data.
+**/.env
+**/.env.*
+!**/.env.example
+.git
+.gitignore
+.idea
+.vscode
+**/.DS_Store
+**/*.log
+
+# Local data and build output (rebuilt inside the image)
+backend/data
+backend/**/data
+backend/bin
+backend/server
+backend/cmd/server/server
+frontend/node_modules
+frontend/dist
+**/*.tsbuildinfo
+
+# Not needed to build the image
+README.md
+Makefile
+docker-compose.yml
+Dockerfile
+.dockerignore

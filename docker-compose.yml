@@ -1,0 +1,38 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: dfs
+      POSTGRES_PASSWORD: dfs
+      POSTGRES_DB: deutschfremsprache
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dfs -d deutschfremsprache"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  # Optional: run the whole app in Docker (`docker compose --profile app up --build`).
+  # Development normally uses `make dev-backend` / `make dev-frontend` instead.
+  app:
+    profiles: ["app"]
+    build: .
+    env_file:
+      - path: backend/.env
+        required: false
+    environment:
+      DATABASE_URL: postgres://dfs:dfs@postgres:5432/deutschfremsprache?sslmode=disable
+    ports:
+      - "8080:8080"
+    volumes:
+      - appdata:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  appdata:

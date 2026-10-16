@@ -1,0 +1,38 @@
+# ---- Secrets ----------------------------------------------------------------
+# Real credentials live in .env files; only the documented template is committed.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# ---- Runtime data -----------------------------------------------------------
+# Local database files, recordings, generated audio/images (DATA_DIR).
+backend/data/
+backend/**/data/
+*.db
+*.sqlite
+
+# ---- Build output -----------------------------------------------------------
+backend/bin/
+backend/server
+backend/cmd/server/server
+*.exe
+*.test
+*.out
+coverage.*
+
+frontend/node_modules/
+frontend/dist/
+*.tsbuildinfo
+.vite/
+
+# ---- Logs & editors & OS ----------------------------------------------------
+*.log
+npm-debug.log*
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+.DS_Store
+Thumbs.db

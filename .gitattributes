@@ -1,0 +1,8 @@
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.wav binary
+
+# sqlc output: collapsed in diffs, excluded from language stats
+backend/internal/db/gen/** linguist-generated=true
+frontend/package-lock.json linguist-generated=true

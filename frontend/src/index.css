@@ -1,0 +1,96 @@
+@import "tailwindcss";
+
+/*
+ * Dark, low-glare theme ("cinema" mode for long, relaxed sessions).
+ * The Tailwind palette is re-mapped instead of rewriting every class:
+ * - slate is inverted (50 = page background … 900 = brightest text),
+ * - pale tints (50–300) of accent colors become translucent glows,
+ * - dark shades used for text (700–900) become light shades.
+ */
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+
+  --color-surface: #17191f;
+  --color-surface-2: #1f222a;
+
+  --color-slate-50: #0d0e12;
+  --color-slate-100: #1d2027;
+  --color-slate-200: #2a2e37;
+  --color-slate-300: #4b5160;
+  --color-slate-400: #737b8a;
+  --color-slate-500: #959dac;
+  --color-slate-600: #b4bac6;
+  --color-slate-700: #cdd2db;
+  --color-slate-800: #e1e4ea;
+  --color-slate-900: #eef0f4;
+  --color-slate-950: #f7f8fa;
+
+  --color-indigo-50: rgb(129 140 248 / 0.10);
+  --color-indigo-100: rgb(129 140 248 / 0.18);
+  --color-indigo-200: rgb(129 140 248 / 0.30);
+  --color-indigo-300: rgb(129 140 248 / 0.45);
+  --color-indigo-500: #6d70f3;
+  --color-indigo-600: #5b5cec;
+  --color-indigo-700: #a5b4fc;
+  --color-indigo-800: #c7d2fe;
+  --color-indigo-900: #e0e7ff;
+
+  --color-emerald-50: rgb(52 211 153 / 0.10);
+  --color-emerald-100: rgb(52 211 153 / 0.18);
+  --color-emerald-200: rgb(52 211 153 / 0.30);
+  --color-emerald-500: #10b981;
+  --color-emerald-600: #22c08a;
+  --color-emerald-700: #6ee7b7;
+  --color-emerald-800: #a7f3d0;
+
+  --color-red-50: rgb(248 113 113 / 0.10);
+  --color-red-100: rgb(248 113 113 / 0.18);
+  --color-red-200: rgb(248 113 113 / 0.30);
+  --color-red-500: #f87171;
+  --color-red-600: #f87171;
+  --color-red-700: #fca5a5;
+
+  --color-amber-50: rgb(251 191 36 / 0.10);
+  --color-amber-100: rgb(251 191 36 / 0.18);
+  --color-amber-200: rgb(251 191 36 / 0.35);
+  --color-amber-700: #fcd34d;
+  --color-amber-800: #fde68a;
+
+  --color-sky-100: rgb(56 189 248 / 0.18);
+  --color-sky-800: #bae6fd;
+  --color-rose-700: #fda4af;
+  --color-teal-700: #5eead4;
+  --color-lime-600: #a3e635;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+body {
+  background: var(--color-slate-50);
+}
+
+/* Quiet scrollbars, including the horizontal topic rows. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #2a2e37 transparent;
+}
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+@keyframes pulse-ring {
+  0% { transform: scale(0.9); opacity: 0.7; }
+  100% { transform: scale(1.6); opacity: 0; }
+}
+.animate-pulse-ring { animation: pulse-ring 1.2s ease-out infinite; }
+
+@keyframes dialog-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+.animate-dialog-in { animation: dialog-in 160ms ease-out; }
