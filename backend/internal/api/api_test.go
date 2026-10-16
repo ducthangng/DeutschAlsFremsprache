@@ -90,7 +90,7 @@ func TestFlow(t *testing.T) {
 	os.MkdirAll(filepath.Join(dir, "recordings"), 0o755)
 	st := openTestStore(t)
 	// PassThreshold 0 so the mock assessment always passes.
-	server, err := New(context.Background(), config.Config{DataDir: dir, JWTSecret: "x", PassThreshold: 0, WordThreshold: 60}, st)
+	server, err := New(context.Background(), config.Config{DataDir: dir, JWTSecret: "x", PassThreshold: 0, WordThreshold: 60, AdminUserID: 1}, st)
 	if err != nil {
 		t.Fatal(err)
 	}

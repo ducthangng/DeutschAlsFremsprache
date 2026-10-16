@@ -20,7 +20,7 @@ import (
 
 func newTestAPI(t *testing.T) (*Server, *httptest.Server, string) {
 	dir := t.TempDir()
-	server, err := New(context.Background(), config.Config{DataDir: dir, JWTSecret: "x", PassThreshold: 0, WordThreshold: 60}, openTestStore(t))
+	server, err := New(context.Background(), config.Config{DataDir: dir, JWTSecret: "x", PassThreshold: 0, WordThreshold: 60, AdminUserID: 1}, openTestStore(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,10 +77,14 @@ func TestPlaylistsDictationAndImages(t *testing.T) {
 		t.Fatalf("create playlist: %d", code)
 	}
 	pp := "/api/playlists/" + itoa(pl.ID)
-	for _, id := range []int64{pub.ID, priv.ID, pub.ID} { // adding twice is a no-op
+	for _, id := range []int64{pub.ID, pub.ID} { // adding twice is a no-op
 		if code := owner.json("POST", pp+"/topics", map[string]int64{"topicId": id}, nil); code != 204 {
 			t.Fatalf("add topic: %d", code)
 		}
+	}
+	// A public playlist refuses private topics unless the owner confirms publishing them.
+	if code := owner.json("POST", pp+"/topics", map[string]int64{"topicId": priv.ID}, nil); code != 409 {
+		t.Fatalf("private topic in public playlist: %d", code)
 	}
 	var in []int64
 	owner.json("GET", "/api/topics/"+itoa(pub.ID)+"/playlists", nil, &in)
@@ -94,7 +98,7 @@ func TestPlaylistsDictationAndImages(t *testing.T) {
 	// The follower sees only the public topic, follows, and practices with Listen -> Write.
 	var d playlistDetail
 	follower.json("GET", pp, nil, &d)
-	if len(d.Topics) != 1 || d.HiddenTopics != 1 || d.Progress.TopicsTotal != 1 || d.CoverURL == "" {
+	if len(d.Topics) != 1 || d.HiddenTopics != 0 || d.Progress.TopicsTotal != 1 || d.CoverURL == "" {
 		t.Fatalf("follower view: %+v", d)
 	}
 	if code := follower.json("POST", pp+"/follow", nil, nil); code != 204 {

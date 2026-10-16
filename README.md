@@ -111,6 +111,7 @@ Khi sửa topic, những câu giữ nguyên chữ vẫn còn bản ghi cũ. Câu
 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `S3_ENDPOINT` | trống | Thông tin đăng nhập S3 (trống thì dùng credential chain mặc định); endpoint dùng cho R2/MinIO |
 | `OPENAI_IMAGE_MODEL`, `OPENAI_IMAGE_USD` | `gpt-image-1`, `0.011` | Model vẽ ảnh flash card và đơn giá mỗi ảnh |
 | `AZURE_STT_USD_PER_HOUR` | `1.0` | Đơn giá ghi âm thành chữ (dùng trong mô phỏng) |
+| `ADMIN_USER_ID` | `1` | Người dùng duy nhất được xem trang Chi phí (`/usage`); những người khác bị chặn ở cả giao diện lẫn API |
 | `PASS_THRESHOLD` | `70` | PronScore tối thiểu để một câu được tính là đạt |
 | `WORD_THRESHOLD` | `60` | Từ có AccuracyScore thấp hơn mức này bị đánh dấu sai |
 | `DATA_DIR` | `./data` | Nơi chứa file ghi âm (WAV). Database chỉ lưu metadata |

@@ -33,6 +33,9 @@ type User struct {
 	Email        string    `json:"email"`
 	Name         string    `json:"name"`
 	PasswordHash string    `json:"-"`
+	AvatarKey    string    `json:"-"`
+	AvatarURL    string    `json:"avatarUrl"` // filled in by the API layer
+	IsAdmin      bool      `json:"isAdmin"`   // filled in by the API layer
 	CreatedAt    time.Time `json:"createdAt"`
 }
 
@@ -132,7 +135,7 @@ func (s *Store) inTx(ctx context.Context, fn func(q *gen.Queries) error) error {
 // ---- users ----
 
 func toUser(u gen.User) *User {
-	return &User{ID: u.ID, Email: u.Email, Name: u.Name, PasswordHash: u.PasswordHash, CreatedAt: u.CreatedAt}
+	return &User{ID: u.ID, Email: u.Email, Name: u.Name, PasswordHash: u.PasswordHash, AvatarKey: u.AvatarKey, CreatedAt: u.CreatedAt}
 }
 
 func (s *Store) CreateUser(ctx context.Context, email, name, hash string) (*User, error) {

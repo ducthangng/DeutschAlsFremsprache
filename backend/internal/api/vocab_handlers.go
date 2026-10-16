@@ -306,3 +306,90 @@ func computeStats(cards []*store.VocabEntry, days []store.ReviewDay, now time.Ti
 	}
 	return st
 }
+
+// topicVocabulary lists the topic owner's word list for the topic, so other
+// learners can copy it into their own pocket.
+func (s *Server) topicVocabulary(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	if _, err := s.store.GetTopic(r.Context(), auth.UserID(r.Context()), id); err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	vs, err := s.store.TopicOwnerVocab(r.Context(), id)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	for i := range vs {
+		vs[i].ImageURL = s.imageURL(vs[i].ImageKey)
+	}
+	writeJSON(w, http.StatusOK, vs)
+}
+
+// bulkAddVocab adds several words at once; missing meanings are translated,
+// terms already in the pocket are skipped.
+func (s *Server) bulkAddVocab(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Language string       `json:"language"`
+		TopicID  *int64       `json:"topicId"`
+		Items    []vocabInput `json:"items"`
+	}
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	if !topic.Languages[in.Language] || len(in.Items) == 0 || len(in.Items) > 100 {
+		writeError(w, http.StatusBadRequest, "cần từ 1 đến 100 từ, ngôn ngữ hợp lệ")
+		return
+	}
+	ctx, uid := r.Context(), auth.UserID(r.Context())
+	if in.TopicID != nil {
+		if _, err := s.store.GetTopic(ctx, uid, *in.TopicID); err != nil {
+			in.TopicID = nil
+		}
+	}
+	var toTranslate []string
+	for i := range in.Items {
+		if msg := in.Items[i].validate(); msg != "" {
+			writeError(w, http.StatusBadRequest, in.Items[i].Term+": "+msg)
+			return
+		}
+		if in.Items[i].Meaning == "" {
+			toTranslate = append(toTranslate, in.Items[i].Term)
+		}
+	}
+	if len(toTranslate) > 0 {
+		if tr, err := s.translateCached(ctx, uid, in.Language, toTranslate); err == nil {
+			j := 0
+			for i := range in.Items {
+				if in.Items[i].Meaning == "" {
+					in.Items[i].Meaning = tr.Translations[j]
+					j++
+				}
+			}
+		} else {
+			log.Printf("bulk vocab translate: %v", err) // keep the words, without meanings
+		}
+	}
+	res := struct {
+		Added   []*store.VocabEntry `json:"added"`
+		Skipped []string            `json:"skipped"` // already in the pocket
+	}{Added: []*store.VocabEntry{}, Skipped: []string{}}
+	for _, it := range in.Items {
+		v, err := s.store.CreateVocab(ctx, uid, &store.VocabEntry{Language: in.Language, Term: it.Term, Meaning: it.Meaning,
+			Example: it.Example, TopicID: in.TopicID, ImageKey: it.ImageKey})
+		if errors.Is(err, store.ErrConflict) {
+			res.Skipped = append(res.Skipped, it.Term)
+			continue
+		}
+		if err != nil {
+			writeStoreError(w, err)
+			return
+		}
+		s.decorateVocab(v)
+		res.Added = append(res.Added, v)
+	}
+	writeJSON(w, http.StatusOK, res)
+}

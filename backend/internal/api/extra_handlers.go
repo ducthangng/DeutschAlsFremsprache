@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"log"
 	"net/http"
 	"strings"
@@ -54,43 +55,11 @@ func (s *Server) translateTexts(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	from, to := in.Language[:2], "vi"
-	ctx, uid := r.Context(), auth.UserID(r.Context())
-
-	cached, err := s.store.CachedTranslations(ctx, from, to, texts)
+	resp, err := s.translateCached(r.Context(), auth.UserID(r.Context()), in.Language, texts)
 	if err != nil {
-		writeStoreError(w, err)
+		log.Printf("translate: %v", err)
+		writeError(w, http.StatusBadGateway, "không dịch được lúc này, vui lòng thử lại sau")
 		return
-	}
-	var missing []string
-	seen := map[string]bool{}
-	for _, t := range texts {
-		if _, ok := cached[t]; !ok && !seen[t] {
-			seen[t] = true
-			missing = append(missing, t)
-		}
-	}
-	resp := translateResponse{Provider: s.translator.Name(), Translations: make([]string, len(texts))}
-	if len(missing) > 0 {
-		out, err := s.translator.Translate(ctx, from, to, missing)
-		if err != nil {
-			log.Printf("translate: %v", err)
-			writeError(w, http.StatusBadGateway, "không dịch được lúc này, vui lòng thử lại sau")
-			return
-		}
-		for i, src := range missing {
-			chars := utf8.RuneCountInString(src)
-			cost := s.translator.CostUSD(chars)
-			resp.Chars += chars
-			resp.CostUSD += cost
-			cached[src] = store.CachedTranslation{Text: out[i], Provider: s.translator.Name()}
-			if err := s.store.SaveTranslation(ctx, uid, from, to, src, out[i], s.translator.Name(), chars, cost); err != nil {
-				log.Printf("cache translation: %v", err)
-			}
-		}
-	}
-	for i, t := range texts {
-		resp.Translations[i] = cached[t].Text
 	}
 	writeJSON(w, http.StatusOK, resp)
 }
@@ -99,6 +68,10 @@ func (s *Server) translateTexts(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) usage(w http.ResponseWriter, r *http.Request) {
 	ctx, uid := r.Context(), auth.UserID(r.Context())
+	if !s.isAdmin(uid) {
+		writeError(w, http.StatusForbidden, "chỉ quản trị viên xem được trang chi phí")
+		return
+	}
 	now := time.Now()
 	monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
 	month, err := s.store.Usage(ctx, uid, monthStart)
@@ -144,4 +117,43 @@ func (s *Server) usage(w http.ResponseWriter, r *http.Request) {
 			"storage":               s.media.Name(),
 		},
 	})
+}
+
+// translateCached translates texts to Vietnamese, serving from the Postgres
+// cache and only sending unseen texts to the provider (whose cost is logged).
+func (s *Server) translateCached(ctx context.Context, uid int64, language string, texts []string) (*translateResponse, error) {
+	from, to := language[:2], "vi"
+	cached, err := s.store.CachedTranslations(ctx, from, to, texts)
+	if err != nil {
+		return nil, err
+	}
+	var missing []string
+	seen := map[string]bool{}
+	for _, t := range texts {
+		if _, ok := cached[t]; !ok && !seen[t] {
+			seen[t] = true
+			missing = append(missing, t)
+		}
+	}
+	resp := &translateResponse{Provider: s.translator.Name(), Translations: make([]string, len(texts))}
+	if len(missing) > 0 {
+		out, err := s.translator.Translate(ctx, from, to, missing)
+		if err != nil {
+			return nil, err
+		}
+		for i, src := range missing {
+			chars := utf8.RuneCountInString(src)
+			cost := s.translator.CostUSD(chars)
+			resp.Chars += chars
+			resp.CostUSD += cost
+			cached[src] = store.CachedTranslation{Text: out[i], Provider: s.translator.Name()}
+			if err := s.store.SaveTranslation(ctx, uid, from, to, src, out[i], s.translator.Name(), chars, cost); err != nil {
+				log.Printf("cache translation: %v", err)
+			}
+		}
+	}
+	for i, t := range texts {
+		resp.Translations[i] = cached[t].Text
+	}
+	return resp, nil
 }

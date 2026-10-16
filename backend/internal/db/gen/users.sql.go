@@ -12,7 +12,7 @@ import (
 const createUser = `-- name: CreateUser :one
 INSERT INTO users (email, name, password_hash)
 VALUES ($1, $2, $3)
-RETURNING id, email, name, password_hash, created_at
+RETURNING id, email, name, password_hash, created_at, avatar_key
 `
 
 type CreateUserParams struct {
@@ -30,12 +30,13 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 		&i.Name,
 		&i.PasswordHash,
 		&i.CreatedAt,
+		&i.AvatarKey,
 	)
 	return i, err
 }
 
 const getUserByEmail = `-- name: GetUserByEmail :one
-SELECT id, email, name, password_hash, created_at FROM users WHERE email = $1
+SELECT id, email, name, password_hash, created_at, avatar_key FROM users WHERE email = $1
 `
 
 func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error) {
@@ -47,12 +48,13 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error
 		&i.Name,
 		&i.PasswordHash,
 		&i.CreatedAt,
+		&i.AvatarKey,
 	)
 	return i, err
 }
 
 const getUserByID = `-- name: GetUserByID :one
-SELECT id, email, name, password_hash, created_at FROM users WHERE id = $1
+SELECT id, email, name, password_hash, created_at, avatar_key FROM users WHERE id = $1
 `
 
 func (q *Queries) GetUserByID(ctx context.Context, id int64) (User, error) {
@@ -64,6 +66,31 @@ func (q *Queries) GetUserByID(ctx context.Context, id int64) (User, error) {
 		&i.Name,
 		&i.PasswordHash,
 		&i.CreatedAt,
+		&i.AvatarKey,
+	)
+	return i, err
+}
+
+const setUserAvatar = `-- name: SetUserAvatar :one
+UPDATE users SET avatar_key = $2 WHERE id = $1
+RETURNING id, email, name, password_hash, created_at, avatar_key
+`
+
+type SetUserAvatarParams struct {
+	ID        int64
+	AvatarKey string
+}
+
+func (q *Queries) SetUserAvatar(ctx context.Context, arg SetUserAvatarParams) (User, error) {
+	row := q.db.QueryRow(ctx, setUserAvatar, arg.ID, arg.AvatarKey)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Email,
+		&i.Name,
+		&i.PasswordHash,
+		&i.CreatedAt,
+		&i.AvatarKey,
 	)
 	return i, err
 }

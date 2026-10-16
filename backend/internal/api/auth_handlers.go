@@ -2,6 +2,7 @@ package api
 
 import (
 	"errors"
+	"io"
 	"net/http"
 	"net/mail"
 	"strings"
@@ -80,7 +81,7 @@ func (s *Server) respondWithToken(w http.ResponseWriter, status int, u *store.Us
 		writeStoreError(w, err)
 		return
 	}
-	writeJSON(w, status, authResponse{Token: tok, User: u})
+	writeJSON(w, status, authResponse{Token: tok, User: s.decorateUser(u)})
 }
 
 func (s *Server) me(w http.ResponseWriter, r *http.Request) {
@@ -93,5 +94,47 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 		writeStoreError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, u)
+	writeJSON(w, http.StatusOK, s.decorateUser(u))
+}
+
+func (s *Server) decorateUser(u *store.User) *store.User {
+	u.AvatarURL = s.imageURL(u.AvatarKey)
+	u.IsAdmin = s.isAdmin(u.ID)
+	return u
+}
+
+// setAvatar stores an uploaded profile picture (multipart "image").
+func (s *Server) setAvatar(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxImageBytes+1<<16)
+	f, _, err := r.FormFile("image")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "thiếu file ảnh (tối đa 5 MB)")
+		return
+	}
+	defer f.Close()
+	data, err := io.ReadAll(io.LimitReader(f, maxImageBytes+1))
+	if err != nil || len(data) > maxImageBytes {
+		writeError(w, http.StatusBadRequest, "ảnh tối đa 5 MB")
+		return
+	}
+	key, err := s.putImage(r, data)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	u, err := s.store.SetUserAvatar(r.Context(), auth.UserID(r.Context()), key)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, s.decorateUser(u))
+}
+
+func (s *Server) removeAvatar(w http.ResponseWriter, r *http.Request) {
+	u, err := s.store.SetUserAvatar(r.Context(), auth.UserID(r.Context()), "")
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, s.decorateUser(u))
 }

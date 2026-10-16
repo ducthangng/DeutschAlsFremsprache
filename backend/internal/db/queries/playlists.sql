@@ -72,3 +72,17 @@ INSERT INTO playlist_follows (playlist_id, user_id) VALUES ($1, $2) ON CONFLICT 
 
 -- name: UnfollowPlaylist :exec
 DELETE FROM playlist_follows WHERE playlist_id = $1 AND user_id = $2;
+
+-- Private topics inside a playlist (they must become public when the playlist is public).
+-- name: PrivateTopicsInPlaylist :many
+SELECT t.id, t.title FROM playlist_topics pt JOIN topics t ON t.id = pt.topic_id
+WHERE pt.playlist_id = $1 AND t.visibility = 'private';
+
+-- name: PublicPlaylistsWithTopic :many
+SELECT p.id, p.name FROM playlist_topics pt JOIN playlists p ON p.id = pt.playlist_id
+WHERE pt.topic_id = $1 AND p.visibility = 'public';
+
+-- name: PublishPlaylistTopics :exec
+UPDATE topics SET visibility = 'public'
+WHERE user_id = sqlc.arg(user_id) AND visibility = 'private'
+  AND id IN (SELECT topic_id FROM playlist_topics WHERE playlist_id = sqlc.arg(playlist_id));

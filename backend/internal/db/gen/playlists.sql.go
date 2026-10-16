@@ -311,6 +311,83 @@ func (q *Queries) OwnPlaylistIDsWithTopic(ctx context.Context, arg OwnPlaylistID
 	return items, nil
 }
 
+const privateTopicsInPlaylist = `-- name: PrivateTopicsInPlaylist :many
+SELECT t.id, t.title FROM playlist_topics pt JOIN topics t ON t.id = pt.topic_id
+WHERE pt.playlist_id = $1 AND t.visibility = 'private'
+`
+
+type PrivateTopicsInPlaylistRow struct {
+	ID    int64
+	Title string
+}
+
+// Private topics inside a playlist (they must become public when the playlist is public).
+func (q *Queries) PrivateTopicsInPlaylist(ctx context.Context, playlistID int64) ([]PrivateTopicsInPlaylistRow, error) {
+	rows, err := q.db.Query(ctx, privateTopicsInPlaylist, playlistID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []PrivateTopicsInPlaylistRow{}
+	for rows.Next() {
+		var i PrivateTopicsInPlaylistRow
+		if err := rows.Scan(&i.ID, &i.Title); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const publicPlaylistsWithTopic = `-- name: PublicPlaylistsWithTopic :many
+SELECT p.id, p.name FROM playlist_topics pt JOIN playlists p ON p.id = pt.playlist_id
+WHERE pt.topic_id = $1 AND p.visibility = 'public'
+`
+
+type PublicPlaylistsWithTopicRow struct {
+	ID   int64
+	Name string
+}
+
+func (q *Queries) PublicPlaylistsWithTopic(ctx context.Context, topicID int64) ([]PublicPlaylistsWithTopicRow, error) {
+	rows, err := q.db.Query(ctx, publicPlaylistsWithTopic, topicID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []PublicPlaylistsWithTopicRow{}
+	for rows.Next() {
+		var i PublicPlaylistsWithTopicRow
+		if err := rows.Scan(&i.ID, &i.Name); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const publishPlaylistTopics = `-- name: PublishPlaylistTopics :exec
+UPDATE topics SET visibility = 'public'
+WHERE user_id = $1 AND visibility = 'private'
+  AND id IN (SELECT topic_id FROM playlist_topics WHERE playlist_id = $2)
+`
+
+type PublishPlaylistTopicsParams struct {
+	UserID     int64
+	PlaylistID int64
+}
+
+func (q *Queries) PublishPlaylistTopics(ctx context.Context, arg PublishPlaylistTopicsParams) error {
+	_, err := q.db.Exec(ctx, publishPlaylistTopics, arg.UserID, arg.PlaylistID)
+	return err
+}
+
 const removePlaylistTopic = `-- name: RemovePlaylistTopic :exec
 DELETE FROM playlist_topics WHERE playlist_id = $1 AND topic_id = $2
 `

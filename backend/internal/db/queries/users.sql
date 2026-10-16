@@ -8,3 +8,7 @@ SELECT * FROM users WHERE email = $1;
 
 -- name: GetUserByID :one
 SELECT * FROM users WHERE id = $1;
+
+-- name: SetUserAvatar :one
+UPDATE users SET avatar_key = $2 WHERE id = $1
+RETURNING *;

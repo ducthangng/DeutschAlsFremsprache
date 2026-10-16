@@ -53,3 +53,10 @@ ORDER BY day;
 INSERT INTO vocab_entries (user_id, language, term, meaning, topic_id, image_key)
 VALUES ($1, $2, $3, $4, $5, $6)
 ON CONFLICT DO NOTHING;
+
+-- The topic owner's word list for a topic (e.g. saved when generating it with AI).
+-- name: TopicOwnerVocab :many
+SELECT v.term, v.meaning, v.example, v.image_key
+FROM vocab_entries v JOIN topics t ON t.id = v.topic_id
+WHERE v.topic_id = $1 AND v.user_id = t.user_id
+ORDER BY v.created_at;

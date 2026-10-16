@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
+import AddVocabDialog from "../components/AddVocabDialog";
+import { AvatarStack } from "../components/Avatar";
 import Dictation from "../components/Dictation";
 import { AssessedText, KaraokeText } from "../components/LineText";
 import { AddToPlaylistDialog } from "../components/PlaylistDialogs";
@@ -9,7 +11,7 @@ import SelectionLookup from "../components/SelectionLookup";
 import { SpeedControl, VoiceSelect } from "../components/SpeechControls";
 import Spinner from "../components/Spinner";
 import Popover from "../components/Popover";
-import { api, LANGUAGES, saveBlob, type AssessResult, type GradingUsage, type Item, type SpeechClip, type TopicCost, type TopicDetail } from "../lib/api";
+import { api, LANGUAGES, saveBlob, type AssessResult, type GradingUsage, type Item, type Participant, type SpeechClip, type TopicCost, type TopicDetail } from "../lib/api";
 import { openMicrophone, playAudio, Recorder, speak, voicesFor, type Playback } from "../lib/audio";
 import { formatUsd } from "../lib/format";
 import { usePrefs } from "../lib/prefs";
@@ -60,6 +62,8 @@ export default function Practice() {
   const [params, setParams] = useSearchParams();
   const mode: "shadow" | "write" = params.get("mode") === "write" ? "write" : "shadow";
   const [addToPlaylist, setAddToPlaylist] = useState(false);
+  const [addVocab, setAddVocab] = useState(false);
+  const [people, setPeople] = useState<Participant[]>([]);
 
   // Async flows read the latest state through refs; runId invalidates stale flows.
   const runId = useRef(0);
@@ -88,6 +92,7 @@ export default function Practice() {
       () => {},
     );
     refreshCosts();
+    api.topicParticipants(topicId).then(setPeople, () => {});
   }, [topicId, refreshCosts]);
 
   // Vietnamese meaning for every line without a hand-written note.
@@ -406,8 +411,18 @@ export default function Practice() {
             </span>
             {!topic.isOwner && <> · bởi {topic.ownerName}</>}
           </p>
+          <div className="mt-3">
+            <AvatarStack people={people} label="người đã luyện" size={24} />
+          </div>
         </div>
         <div className="flex shrink-0 items-center gap-1 pt-6">
+          <button
+            onClick={() => setAddVocab(true)}
+            className="rounded-lg px-3 py-1.5 text-sm text-slate-600 hover:bg-surface hover:ring-1 hover:ring-slate-200"
+            title="Lưu từ vựng của topic này vào Pocket"
+          >
+            ＋ Từ vựng
+          </button>
           <Popover label={<>⚙ {prefs.rate.toFixed(2)}×</>} title="Cài đặt luyện tập" width="w-80">
             <div className="space-y-4">
               <SpeedControl compact rate={prefs.rate} onChange={(rate) => setPrefs({ rate })} />
@@ -732,6 +747,7 @@ export default function Practice() {
       )}
 
       {addToPlaylist && <AddToPlaylistDialog topicId={topic.id} open onClose={() => setAddToPlaylist(false)} />}
+      {addVocab && <AddVocabDialog topic={topic} onClose={() => setAddVocab(false)} />}
     </div>
   );
 }

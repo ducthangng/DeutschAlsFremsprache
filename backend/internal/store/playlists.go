@@ -38,7 +38,28 @@ func (s *Store) CreatePlaylist(ctx context.Context, p *Playlist) (*Playlist, err
 	return s.GetPlaylist(ctx, p.UserID, id)
 }
 
-func (s *Store) UpdatePlaylist(ctx context.Context, p *Playlist) (*Playlist, error) {
+// UpdatePlaylist saves the playlist. Making it public requires its private
+// topics to become public too: without makePublic that returns *NeedsPublicError.
+func (s *Store) UpdatePlaylist(ctx context.Context, p *Playlist, makePublic bool) (*Playlist, error) {
+	if p.Visibility == "public" {
+		if err := s.ownPlaylist(ctx, p.UserID, p.ID); err != nil {
+			return nil, err
+		}
+		private, err := s.q.PrivateTopicsInPlaylist(ctx, p.ID)
+		if err != nil {
+			return nil, err
+		}
+		if len(private) > 0 && !makePublic {
+			e := &NeedsPublicError{}
+			for _, t := range private {
+				e.Topics = append(e.Topics, t.Title)
+			}
+			return nil, e
+		}
+		if err := s.q.PublishPlaylistTopics(ctx, gen.PublishPlaylistTopicsParams{UserID: p.UserID, PlaylistID: p.ID}); err != nil {
+			return nil, err
+		}
+	}
 	n, err := s.q.UpdatePlaylist(ctx, gen.UpdatePlaylistParams{ID: p.ID, UserID: p.UserID, Name: p.Name, Description: p.Description, Level: p.Level, Visibility: p.Visibility})
 	if err != nil {
 		return nil, err
@@ -128,12 +149,28 @@ func (s *Store) ownPlaylist(ctx context.Context, userID, playlistID int64) error
 	return nil
 }
 
-func (s *Store) AddPlaylistTopic(ctx context.Context, userID, playlistID, topicID int64) error {
-	if err := s.ownPlaylist(ctx, userID, playlistID); err != nil {
+// AddPlaylistTopic appends a topic. A public playlist only holds public
+// topics: adding a private one returns *NeedsPublicError unless makePublic,
+// in which case the (necessarily own) topic is published first.
+func (s *Store) AddPlaylistTopic(ctx context.Context, userID, playlistID, topicID int64, makePublic bool) error {
+	p, err := s.GetPlaylist(ctx, userID, playlistID)
+	if err != nil {
 		return err
 	}
-	if _, err := s.GetTopic(ctx, userID, topicID); err != nil { // own or public topics only
+	if !p.IsOwner {
+		return ErrNotFound
+	}
+	t, err := s.GetTopic(ctx, userID, topicID) // own or public topics only
+	if err != nil {
 		return err
+	}
+	if p.Visibility == "public" && t.Visibility != "public" {
+		if !makePublic {
+			return &NeedsPublicError{Topics: []string{t.Title}}
+		}
+		if err := s.SetTopicVisibility(ctx, userID, topicID, "public"); err != nil {
+			return err
+		}
 	}
 	if err := s.q.AddPlaylistTopic(ctx, gen.AddPlaylistTopicParams{PlaylistID: playlistID, TopicID: topicID}); err != nil {
 		return err

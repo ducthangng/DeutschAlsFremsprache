@@ -1,9 +1,87 @@
+import { useRef, useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { api } from "../lib/api";
 import { useAuth } from "../lib/auth";
+import Avatar from "./Avatar";
+import { useDialog } from "./Dialog";
+import Popover from "./Popover";
+
+/** Profile picture in the header, with a menu to change it and to log out. */
+function ProfileMenu() {
+  const { user, logout, setUser } = useAuth();
+  const navigate = useNavigate();
+  const dialog = useDialog();
+  const file = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  if (!user) return null;
+
+  async function upload(f?: File | null) {
+    if (!f) return;
+    setBusy(true);
+    try {
+      setUser(await api.setAvatar(f));
+    } catch (e) {
+      dialog.alert("Không đổi được ảnh đại diện", e instanceof Error ? e.message : "");
+    } finally {
+      setBusy(false);
+      if (file.current) file.current.value = "";
+    }
+  }
+
+  return (
+    <>
+      <input ref={file} type="file" accept="image/png,image/jpeg,image/webp,image/gif" className="hidden" onChange={(e) => upload(e.target.files?.[0])} />
+      <Popover label={<Avatar name={user.name} url={user.avatarUrl} size={28} className={busy ? "opacity-50" : ""} />} title="Tài khoản" width="w-64">
+        {(close) => (
+          <div className="-m-2">
+            <div className="flex items-center gap-3 px-3 py-2">
+              <Avatar name={user.name} url={user.avatarUrl} size={40} />
+              <div className="min-w-0">
+                <p className="truncate font-semibold text-slate-900">{user.name}</p>
+                <p className="truncate text-xs text-slate-400">{user.email}</p>
+              </div>
+            </div>
+            <div className="my-1 border-t border-slate-100" />
+            <button
+              onClick={() => {
+                close();
+                file.current?.click();
+              }}
+              className="block w-full rounded-lg px-3 py-2 text-left hover:bg-slate-100"
+            >
+              🖼 Đổi ảnh đại diện
+            </button>
+            {user.avatarUrl && (
+              <button
+                onClick={async () => {
+                  close();
+                  setUser(await api.removeAvatar());
+                }}
+                className="block w-full rounded-lg px-3 py-2 text-left text-slate-500 hover:bg-slate-100"
+              >
+                Bỏ ảnh đại diện
+              </button>
+            )}
+            <div className="my-1 border-t border-slate-100" />
+            <button
+              onClick={() => {
+                close();
+                logout();
+                navigate("/");
+              }}
+              className="block w-full rounded-lg px-3 py-2 text-left hover:bg-slate-100"
+            >
+              Đăng xuất
+            </button>
+          </div>
+        )}
+      </Popover>
+    </>
+  );
+}
 
 export default function Layout() {
-  const { user, logout } = useAuth();
-  const navigate = useNavigate();
+  const { user } = useAuth();
   const path = useLocation().pathname;
   // Landing and sign-in pages carry their own call to action: logo only.
   const bare = !user && ["/", "/login", "/signup"].includes(path);
@@ -29,7 +107,7 @@ export default function Layout() {
                   ["/playlists", "Playlist"],
                   ["/simulations", "Mô phỏng"],
                   ["/pocket", "Pocket"],
-                  ["/usage", "Chi phí"],
+                  ...(user.isAdmin ? [["/usage", "Chi phí"]] : []),
                 ].map(([to, label]) => (
                   <NavLink
                     key={to}
@@ -42,16 +120,6 @@ export default function Layout() {
                     {label}
                   </NavLink>
                 ))}
-                <span className="hidden px-2 text-slate-400 sm:inline">{user.name}</span>
-                <button
-                  onClick={() => {
-                    logout();
-                    navigate("/");
-                  }}
-                  className="rounded-lg px-3 py-1.5 text-slate-600 hover:bg-slate-100"
-                >
-                  Đăng xuất
-                </button>
               </>
             ) : (
               <>
@@ -64,6 +132,7 @@ export default function Layout() {
               </>
             )}
           </nav>
+          {user && <div className="ml-2 shrink-0">{<ProfileMenu />}</div>}
         </div>
       </header>
       <main>

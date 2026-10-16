@@ -78,6 +78,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/auth/register", s.register)
 	mux.HandleFunc("POST /api/auth/login", s.login)
 	protected("GET /api/me", s.me)
+	protected("PUT /api/me/avatar", s.setAvatar)
+	protected("DELETE /api/me/avatar", s.removeAvatar)
 
 	protected("GET /api/topics", s.listTopics)
 	protected("GET /api/topics/public", s.listPublicTopics)
@@ -102,6 +104,10 @@ func (s *Server) Handler() http.Handler {
 	protected("POST /api/playlists/{id}/follow", s.setFollow(true))
 	protected("DELETE /api/playlists/{id}/follow", s.setFollow(false))
 	protected("GET /api/topics/{id}/playlists", s.topicPlaylists)
+	protected("GET /api/topics/{id}/participants", s.topicParticipants)
+	protected("GET /api/topics/{id}/vocabulary", s.topicVocabulary)
+	protected("GET /api/playlists/{id}/participants", s.playlistParticipants)
+	protected("POST /api/vocab/bulk", s.bulkAddVocab)
 
 	protected("GET /api/simulations", s.listSimulations)
 	protected("POST /api/simulations", s.createSimulation)
@@ -171,9 +177,23 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
 }
 
+// writeErrorCode adds a machine-readable code (and details) the frontend can act on.
+func writeErrorCode(w http.ResponseWriter, status int, code, msg string, details any) {
+	writeJSON(w, status, map[string]any{"error": msg, "code": code, "details": details})
+}
+
+func (s *Server) isAdmin(uid int64) bool { return uid != 0 && uid == s.cfg.AdminUserID }
+
 // writeStoreError maps store errors to HTTP statuses.
 func writeStoreError(w http.ResponseWriter, err error) {
+	var needsPublic *store.NeedsPublicError
+	var inPublic *store.InPublicPlaylistError
 	switch {
+	case errors.As(err, &needsPublic):
+		writeErrorCode(w, http.StatusConflict, "needs_public", "playlist công khai chỉ chứa topic công khai", needsPublic.Topics)
+	case errors.As(err, &inPublic):
+		writeErrorCode(w, http.StatusConflict, "in_public_playlist",
+			"topic đang nằm trong playlist công khai: "+strings.Join(inPublic.Playlists, ", ")+". Hãy bỏ topic khỏi các playlist đó trước.", inPublic.Playlists)
 	case errors.Is(err, store.ErrNotFound):
 		writeError(w, http.StatusNotFound, "không tìm thấy")
 	case errors.Is(err, store.ErrConflict):

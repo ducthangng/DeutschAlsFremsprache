@@ -20,7 +20,8 @@ type Config struct {
 	StaticDir        string
 	JWTSecret        string
 	CORSOrigin       string // comma-separated; "https://*.vercel.app" style wildcards allowed
-	PublicURL        string // absolute base of this API, e.g. https://api.example.com (for media links)
+	PublicURL        string
+	AdminUserID      int64 // the only user who may open /usage // absolute base of this API, e.g. https://api.example.com (for media links)
 	AzureKey         string
 	AzureRegion      string
 	TranslatorKey    string
@@ -119,6 +120,7 @@ func loadEnv() Config {
 		JWTSecret:        env("JWT_SECRET", "dev-secret-change-me"),
 		CORSOrigin:       env("CORS_ORIGIN", ""),
 		PublicURL:        strings.TrimRight(env("PUBLIC_URL", ""), "/"),
+		AdminUserID:      int64(envFloat("ADMIN_USER_ID", 1)),
 		AzureKey:         env("AZURE_SPEECH_KEY", ""),
 		AzureRegion:      env("AZURE_SPEECH_REGION", ""),
 		TranslatorKey:    env("AZURE_TRANSLATOR_KEY", ""),

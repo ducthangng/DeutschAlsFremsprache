@@ -16,6 +16,14 @@ import SimulationRun from "./pages/SimulationRun";
 import Simulations from "./pages/Simulations";
 import Usage from "./pages/Usage";
 
+/** The cost page is for the admin only (the API refuses everyone else too). */
+function RequireAdmin({ children }: { children: ReactNode }) {
+  const { user, loading } = useAuth();
+  if (loading) return <Spinner className="mx-auto mt-24" />;
+  if (!user?.isAdmin) return <Navigate to="/topics" replace />;
+  return <>{children}</>;
+}
+
 function RequireAuth({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth();
   const location = useLocation();
@@ -42,7 +50,7 @@ export default function App() {
         <Route path="/simulations" element={<RequireAuth><Simulations /></RequireAuth>} />
         <Route path="/simulations/:id" element={<RequireAuth><SimulationRun /></RequireAuth>} />
         <Route path="/pocket" element={<RequireAuth><Pocket /></RequireAuth>} />
-        <Route path="/usage" element={<RequireAuth><Usage /></RequireAuth>} />
+        <Route path="/usage" element={<RequireAuth><RequireAdmin><Usage /></RequireAdmin></RequireAuth>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>

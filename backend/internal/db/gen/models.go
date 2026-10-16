@@ -183,6 +183,7 @@ type User struct {
 	Name         string
 	PasswordHash string
 	CreatedAt    time.Time
+	AvatarKey    string
 }
 
 type VocabEntry struct {

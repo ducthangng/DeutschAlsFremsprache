@@ -230,6 +230,12 @@ func (s *Server) updateTopic(w http.ResponseWriter, r *http.Request) {
 	}
 	t := in.toTopic(auth.UserID(r.Context()))
 	t.ID = id
+	if t.Visibility == "private" {
+		if err := s.store.CheckCanMakePrivate(r.Context(), id); err != nil {
+			writeStoreError(w, err)
+			return
+		}
+	}
 	out, removed, err := s.store.UpdateTopic(r.Context(), t, lines)
 	if err != nil {
 		writeStoreError(w, err)
@@ -280,6 +286,12 @@ func (s *Server) setTopicVisibility(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx, uid := r.Context(), auth.UserID(r.Context())
+	if in.Visibility == "private" {
+		if err := s.store.CheckCanMakePrivate(ctx, id); err != nil {
+			writeStoreError(w, err)
+			return
+		}
+	}
 	if err := s.store.SetTopicVisibility(ctx, uid, id, in.Visibility); err != nil {
 		writeStoreError(w, err)
 		return

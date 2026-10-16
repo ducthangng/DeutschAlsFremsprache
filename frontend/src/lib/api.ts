@@ -7,7 +7,26 @@ export interface User {
   id: number;
   email: string;
   name: string;
+  avatarUrl: string;
+  /** Only the admin may open the cost page (/usage). */
+  isAdmin: boolean;
   createdAt: string;
+}
+
+export interface Participant {
+  id: number;
+  name: string;
+  avatarUrl: string;
+  lastAt: string;
+}
+
+/** A word the user can copy into their pocket. */
+export interface VocabCandidate {
+  term: string;
+  meaning?: string;
+  example?: string;
+  imageKey?: string;
+  imageUrl?: string;
 }
 
 export interface Topic {
@@ -421,7 +440,13 @@ export function setToken(token: string | null) {
 }
 
 export class ApiError extends Error {
-  constructor(public status: number, message: string) {
+  constructor(
+    public status: number,
+    message: string,
+    /** Machine-readable reason, e.g. "needs_public" (see details). */
+    public code = "",
+    public details: string[] = [],
+  ) {
     super(message);
   }
 }
@@ -438,14 +463,18 @@ async function request(path: string, init: RequestInit = {}): Promise<Response> 
   const res = await fetch(`${API_BASE}/api${path}`, { ...init, headers });
   if (!res.ok) {
     let msg = res.statusText;
+    let code = "";
+    let details: string[] = [];
     try {
       const body = JSON.parse(await res.text());
       if (body?.error) msg = body.error;
+      if (body?.code) code = body.code;
+      if (Array.isArray(body?.details)) details = body.details;
     } catch {
       /* non-JSON error */
     }
     if (res.status === 401 && token) onUnauthorized();
-    throw new ApiError(res.status, msg);
+    throw new ApiError(res.status, msg, code, details);
   }
   return res;
 }
@@ -492,6 +521,19 @@ export const api = {
   login: (email: string, password: string) =>
     json<{ token: string; user: User }>("/auth/login", "POST", { email, password }),
   me: () => json<User>("/me"),
+  setAvatar: async (file: File) => {
+    const form = new FormData();
+    form.append("image", file);
+    return (await request("/me/avatar", { method: "PUT", body: form })).json() as Promise<User>;
+  },
+  removeAvatar: () => json<User>("/me/avatar", "DELETE"),
+  topicParticipants: (id: number) => json<Participant[]>(`/topics/${id}/participants`),
+  playlistParticipants: (id: number) => json<Participant[]>(`/playlists/${id}/participants`),
+  /** The topic owner's word list for the topic. */
+  topicVocabulary: (id: number) => json<VocabCandidate[]>(`/topics/${id}/vocabulary`),
+  /** Adds several words; missing meanings are translated, existing terms skipped. */
+  bulkAddVocab: (language: Language, topicId: number | null, items: VocabCandidate[]) =>
+    json<{ added: VocabEntry[]; skipped: string[] }>("/vocab/bulk", "POST", { language, topicId, items }),
 
   listTopics: () => json<Topic[]>("/topics"),
   getTopic: (id: number) => json<TopicDetail>(`/topics/${id}`),
@@ -514,9 +556,11 @@ export const api = {
   publicPlaylists: () => json<Playlist[]>("/playlists/public"),
   getPlaylist: (id: number) => json<PlaylistDetail>(`/playlists/${id}`),
   createPlaylist: (input: PlaylistInput) => json<Playlist>("/playlists", "POST", input),
-  updatePlaylist: (id: number, input: PlaylistInput) => json<Playlist>(`/playlists/${id}`, "PUT", input),
+  /** makePublic confirms publishing private topics of a playlist that becomes public. */
+  updatePlaylist: (id: number, input: PlaylistInput, makePublic = false) => json<Playlist>(`/playlists/${id}`, "PUT", { ...input, makePublic }),
   deletePlaylist: (id: number) => json<void>(`/playlists/${id}`, "DELETE"),
-  addToPlaylist: (id: number, topicId: number) => json<void>(`/playlists/${id}/topics`, "POST", { topicId }),
+  /** makePublic confirms publishing a private topic added to a public playlist. */
+  addToPlaylist: (id: number, topicId: number, makePublic = false) => json<void>(`/playlists/${id}/topics`, "POST", { topicId, makePublic }),
   removeFromPlaylist: (id: number, topicId: number) => json<void>(`/playlists/${id}/topics/${topicId}`, "DELETE"),
   reorderPlaylist: (id: number, topicIds: number[]) => json<void>(`/playlists/${id}/order`, "PUT", { topicIds }),
   followPlaylist: (id: number, follow: boolean) => json<void>(`/playlists/${id}/follow`, follow ? "POST" : "DELETE"),

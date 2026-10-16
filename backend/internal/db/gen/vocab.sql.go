@@ -291,6 +291,46 @@ func (q *Queries) SetVocabImage(ctx context.Context, arg SetVocabImageParams) (V
 	return i, err
 }
 
+const topicOwnerVocab = `-- name: TopicOwnerVocab :many
+SELECT v.term, v.meaning, v.example, v.image_key
+FROM vocab_entries v JOIN topics t ON t.id = v.topic_id
+WHERE v.topic_id = $1 AND v.user_id = t.user_id
+ORDER BY v.created_at
+`
+
+type TopicOwnerVocabRow struct {
+	Term     string
+	Meaning  string
+	Example  string
+	ImageKey string
+}
+
+// The topic owner's word list for a topic (e.g. saved when generating it with AI).
+func (q *Queries) TopicOwnerVocab(ctx context.Context, topicID pgtype.Int8) ([]TopicOwnerVocabRow, error) {
+	rows, err := q.db.Query(ctx, topicOwnerVocab, topicID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []TopicOwnerVocabRow{}
+	for rows.Next() {
+		var i TopicOwnerVocabRow
+		if err := rows.Scan(
+			&i.Term,
+			&i.Meaning,
+			&i.Example,
+			&i.ImageKey,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const updateVocab = `-- name: UpdateVocab :one
 UPDATE vocab_entries
 SET term = $1, meaning = $2, example = $3,

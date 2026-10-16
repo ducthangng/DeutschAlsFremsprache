@@ -1,6 +1,37 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { api, type Playlist, type PlaylistInput, type Visibility } from "../lib/api";
-import { Modal } from "./Dialog";
+import { ApiError } from "../lib/api";
+import { Modal, useDialog } from "./Dialog";
+
+type DialogApi = ReturnType<typeof useDialog>;
+
+/**
+ * Runs an action that may put private topics into a public playlist. If the
+ * server answers "needs_public", the user is asked to publish those topics and
+ * the action is retried with makePublic. Returns null if the user declines.
+ */
+export async function confirmPublish<T>(dialog: DialogApi, run: (makePublic: boolean) => Promise<T>): Promise<T | null> {
+  try {
+    return await run(false);
+  } catch (e) {
+    if (!(e instanceof ApiError && e.code === "needs_public")) throw e;
+    const ok = await dialog.confirm({
+      title: e.details.length === 1 ? "Chuyển topic sang công khai?" : `Chuyển ${e.details.length} topic sang công khai?`,
+      message: (
+        <>
+          Playlist công khai chỉ chứa topic công khai, để mọi người theo dõi đều luyện được. Các topic sau sẽ được chuyển sang <b>🌐 công khai</b>:
+          <ul className="mt-2 list-inside list-disc text-slate-700">
+            {e.details.map((t) => (
+              <li key={t}>{t}</li>
+            ))}
+          </ul>
+        </>
+      ),
+      confirmText: "Công khai & tiếp tục",
+    });
+    return ok ? run(true) : null;
+  }
+}
 import Spinner from "./Spinner";
 
 const LEVELS = ["", "A1", "A2", "B1", "B2", "C1", "C2"];
@@ -18,6 +49,7 @@ export function PlaylistFormDialog({
   onClose: () => void;
   onSaved: (p: Playlist) => void;
 }) {
+  const dialog = useDialog();
   const [form, setForm] = useState<PlaylistInput>({ name: "", description: "", level: "", visibility: "private" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -34,7 +66,9 @@ export function PlaylistFormDialog({
     setBusy(true);
     setError("");
     try {
-      onSaved(initial ? await api.updatePlaylist(initial.id, form) : await api.createPlaylist(form));
+      const saved = initial ? await confirmPublish(dialog, (mp) => api.updatePlaylist(initial.id, form, mp)) : await api.createPlaylist(form);
+      if (!saved) return; // the user chose not to publish the topics
+      onSaved(saved);
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Không lưu được");
@@ -86,6 +120,7 @@ export function PlaylistFormDialog({
 
 /** Tick the playlists a topic belongs to; changes apply immediately. */
 export function AddToPlaylistDialog({ topicId, open, onClose }: { topicId: number; open: boolean; onClose: () => void }) {
+  const dialog = useDialog();
   const [playlists, setPlaylists] = useState<Playlist[] | null>(null);
   const [member, setMember] = useState<Set<number>>(new Set());
   const [creating, setCreating] = useState(false);
@@ -111,7 +146,7 @@ export function AddToPlaylistDialog({ topicId, open, onClose }: { topicId: numbe
     setMember(next);
     try {
       if (has) await api.removeFromPlaylist(p.id, topicId);
-      else await api.addToPlaylist(p.id, topicId);
+      else if ((await confirmPublish(dialog, (mp) => api.addToPlaylist(p.id, topicId, mp))) === null) setMember(member);
     } catch (e) {
       setMember(member);
       setError(e instanceof Error ? e.message : "Không cập nhật được");
@@ -151,7 +186,7 @@ export function AddToPlaylistDialog({ topicId, open, onClose }: { topicId: numbe
         open={open && creating}
         onClose={() => setCreating(false)}
         onSaved={async (p) => {
-          await api.addToPlaylist(p.id, topicId).catch(() => {});
+          await confirmPublish(dialog, (mp) => api.addToPlaylist(p.id, topicId, mp)).catch(() => {});
           setPlaylists((ps) => [p, ...(ps ?? [])]);
           setMember((m) => new Set(m).add(p.id));
         }}

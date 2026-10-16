@@ -20,7 +20,7 @@ export function Row({ title, action, children }: { title: string; action?: React
         {action}
       </div>
       <div className="relative">
-        <div ref={scroller} className="no-scrollbar flex snap-x gap-3 overflow-x-auto scroll-px-4 px-4 pb-6 pt-1 sm:scroll-px-10 sm:px-10">
+        <div ref={scroller} className="no-scrollbar flex snap-x gap-3 overflow-x-auto scroll-px-4 px-4 pb-6 pt-4 sm:scroll-px-10 sm:px-10">
           {children}
         </div>
         <button
@@ -42,23 +42,41 @@ export function Row({ title, action, children }: { title: string; action?: React
   );
 }
 
-/** 16:9 poster card for a topic. `menu` renders on hover (owner actions). */
+/** 16:9 poster card for a topic. On hover it lifts and reveals details. `menu` renders on hover (owner actions). */
 export function TopicCard({ topic, menu, wide }: { topic: Topic; menu?: ReactNode; wide?: boolean }) {
   const pct = topicProgress(topic);
+  const best = Math.max(topic.passedCount, topic.dictationPassedCount);
   return (
     <div className={`group relative shrink-0 snap-start ${wide ? "w-full" : "w-64 sm:w-72"}`}>
-      <Link to={`/topics/${topic.id}`} className="block">
+      <Link
+        to={`/topics/${topic.id}`}
+        className="block rounded-xl transition duration-300 ease-out will-change-transform group-hover:-translate-y-1.5 group-hover:scale-[1.04] focus-visible:-translate-y-1.5 motion-reduce:transform-none"
+      >
         <Cover
           url={topic.coverUrl}
           title={topic.title}
-          className="aspect-video rounded-xl ring-1 ring-white/5 transition duration-300 group-hover:scale-[1.03] group-hover:ring-white/20 group-hover:shadow-2xl group-hover:shadow-black/60"
+          className="aspect-video rounded-xl ring-1 ring-white/5 transition duration-300 group-hover:shadow-2xl group-hover:shadow-black/70 group-hover:ring-indigo-400/60"
         >
-          <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-transparent" />
+          <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-transparent transition-colors duration-300 group-hover:from-black/95 group-hover:via-black/50" />
+          {/* play button appears on hover */}
+          <span className="absolute right-3 top-1/2 flex h-11 w-11 -translate-y-1/2 scale-75 items-center justify-center rounded-full bg-white text-lg text-black opacity-0 shadow-lg transition duration-300 group-hover:scale-100 group-hover:opacity-100">
+            ▶
+          </span>
           <div className="absolute inset-x-0 bottom-0 p-3">
             <p className="text-[11px] uppercase tracking-wider text-white/50">
               {LANGUAGES[topic.language].flag} {topic.kind === "dialogue" ? "Hội thoại" : "Từ vựng"} · {topic.itemCount} câu
             </p>
-            <h3 className="line-clamp-2 font-semibold leading-snug text-white">{topic.title}</h3>
+            <h3 className="line-clamp-2 pr-12 font-semibold leading-snug text-white">{topic.title}</h3>
+            {/* details slide in on hover */}
+            <div className="grid grid-rows-[0fr] transition-all duration-300 group-hover:grid-rows-[1fr]">
+              <div className="overflow-hidden">
+                {topic.description && <p className="mt-1 line-clamp-2 text-xs text-white/70">{topic.description}</p>}
+                <p className="mt-1 text-[11px] text-white/50">
+                  {best > 0 ? `${Math.round(pct * 100)}% · ${best}/${topic.itemCount} câu đạt` : "Chưa luyện"}
+                  {topic.completions > 0 && ` · ✓ ${topic.completions} lượt hoàn thành`}
+                </p>
+              </div>
+            </div>
           </div>
           {pct > 0 && (
             <div className="absolute inset-x-0 bottom-0 h-1 bg-white/10">
@@ -70,25 +88,35 @@ export function TopicCard({ topic, menu, wide }: { topic: Topic; menu?: ReactNod
           )}
         </Cover>
       </Link>
-      {menu && <div className="absolute right-2 top-2 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100">{menu}</div>}
+      {menu && <div className="absolute right-2 top-2 z-10 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100">{menu}</div>}
       {!topic.isOwner && <p className="mt-1.5 truncate px-1 text-xs text-slate-400">bởi {topic.ownerName}</p>}
     </div>
   );
 }
 
+/**
+ * A playlist looks like a stack of cards (two layers behind the cover) so it
+ * reads differently from a single topic; the stack fans out on hover.
+ */
 export function PlaylistCard({ playlist, wide }: { playlist: Playlist; wide?: boolean }) {
   const p = playlist.progress;
   return (
-    <Link to={`/playlists/${playlist.id}`} className={`group block shrink-0 snap-start ${wide ? "w-full" : "w-64 sm:w-72"}`}>
+    <Link to={`/playlists/${playlist.id}`} className={`group block shrink-0 snap-start pt-4 ${wide ? "w-full" : "w-64 sm:w-72"}`}>
       <div className="relative">
-        {/* stacked-card look */}
-        <div className="absolute inset-x-3 -top-1.5 h-3 rounded-t-xl bg-white/5" />
-        <Cover url={playlist.coverUrl} title={playlist.name} className="aspect-video rounded-xl ring-1 ring-white/5 transition group-hover:ring-white/20">
+        {/* back layers (raw hex: the theme remaps named shades) */}
+        <div className="absolute inset-x-6 -top-4 h-full rounded-xl bg-[#1b1d24] ring-1 ring-white/5 transition duration-300 group-hover:-translate-y-1 group-hover:rotate-[-2deg] motion-reduce:transform-none" />
+        <div className="absolute inset-x-3 -top-2 h-full rounded-xl bg-[#262a33] ring-1 ring-white/10 transition duration-300 group-hover:-translate-y-0.5 group-hover:rotate-[1.5deg] motion-reduce:transform-none" />
+        <Cover
+          url={playlist.coverUrl}
+          title={playlist.name}
+          className="aspect-video rounded-xl shadow-lg shadow-black/40 ring-1 ring-white/10 transition duration-300 group-hover:-translate-y-1 group-hover:ring-indigo-400/60 motion-reduce:transform-none"
+        >
           <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/30 to-transparent" />
+          <span className="absolute left-2 top-2 rounded-md bg-black/60 px-2 py-0.5 text-[11px] font-semibold text-white backdrop-blur">
+            ▤ {playlist.topicCount} topic
+          </span>
           <div className="absolute inset-x-0 bottom-0 p-3">
-            <p className="text-[11px] uppercase tracking-wider text-white/50">
-              ▤ Playlist{playlist.level && ` · ${playlist.level}`} · {playlist.topicCount} topic
-            </p>
+            <p className="text-[11px] uppercase tracking-wider text-white/50">Playlist{playlist.level && ` · ${playlist.level}`}</p>
             <h3 className="line-clamp-2 font-semibold leading-snug text-white">{playlist.name}</h3>
           </div>
           {p.topicsTotal > 0 && p.percent > 0 && (

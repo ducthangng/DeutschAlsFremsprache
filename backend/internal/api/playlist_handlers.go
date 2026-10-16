@@ -18,6 +18,8 @@ type playlistInput struct {
 	Description string `json:"description"`
 	Level       string `json:"level"`
 	Visibility  string `json:"visibility"`
+	// MakePublic confirms publishing the playlist's private topics (see NeedsPublicError).
+	MakePublic bool `json:"makePublic"`
 }
 
 func (in *playlistInput) validate() string {
@@ -170,7 +172,7 @@ func (s *Server) updatePlaylist(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p, err := s.store.UpdatePlaylist(r.Context(), &store.Playlist{ID: id, UserID: auth.UserID(r.Context()), Name: in.Name,
-		Description: in.Description, Level: in.Level, Visibility: in.Visibility})
+		Description: in.Description, Level: in.Level, Visibility: in.Visibility}, in.MakePublic)
 	if err != nil {
 		writeStoreError(w, err)
 		return
@@ -196,12 +198,13 @@ func (s *Server) addPlaylistTopic(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		TopicID int64 `json:"topicId"`
+		TopicID    int64 `json:"topicId"`
+		MakePublic bool  `json:"makePublic"` // confirmed: publish a private topic added to a public playlist
 	}
 	if !decodeJSON(w, r, &in) {
 		return
 	}
-	if err := s.store.AddPlaylistTopic(r.Context(), auth.UserID(r.Context()), id, in.TopicID); err != nil {
+	if err := s.store.AddPlaylistTopic(r.Context(), auth.UserID(r.Context()), id, in.TopicID, in.MakePublic); err != nil {
 		writeStoreError(w, err)
 		return
 	}
@@ -308,4 +311,41 @@ func (s *Server) gradeDictation(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"score": res.Score, "passed": res.Passed, "tokens": res.Tokens,
 		"reference": item.Text, "passScore": dictation.PassScore})
+}
+
+func (s *Server) writeParticipants(w http.ResponseWriter, ps []*store.Participant, err error) {
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	for _, p := range ps {
+		p.AvatarURL = s.imageURL(p.AvatarKey)
+	}
+	writeJSON(w, http.StatusOK, ps)
+}
+
+func (s *Server) playlistParticipants(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	if _, err := s.store.GetPlaylist(r.Context(), auth.UserID(r.Context()), id); err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	ps, err := s.store.PlaylistParticipants(r.Context(), id)
+	s.writeParticipants(w, ps, err)
+}
+
+func (s *Server) topicParticipants(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	if _, err := s.store.GetTopic(r.Context(), auth.UserID(r.Context()), id); err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	ps, err := s.store.TopicParticipants(r.Context(), id)
+	s.writeParticipants(w, ps, err)
 }

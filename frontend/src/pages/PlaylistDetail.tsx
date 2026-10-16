@@ -3,9 +3,10 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { topicProgress } from "../components/Cards";
 import Cover from "../components/Cover";
 import { Modal, useDialog } from "../components/Dialog";
-import { PlaylistFormDialog } from "../components/PlaylistDialogs";
+import { AvatarStack } from "../components/Avatar";
+import { confirmPublish, PlaylistFormDialog } from "../components/PlaylistDialogs";
 import Spinner from "../components/Spinner";
-import { api, LANGUAGES, type PlaylistDetail as Detail, type Topic } from "../lib/api";
+import { api, LANGUAGES, type Participant, type PlaylistDetail as Detail, type Topic } from "../lib/api";
 
 export default function PlaylistDetail() {
   const id = Number(useParams().id);
@@ -16,7 +17,11 @@ export default function PlaylistDetail() {
   const dialog = useDialog();
   const navigate = useNavigate();
 
-  const reload = () => api.getPlaylist(id).then(setPl, (e) => setError(e.message));
+  const [people, setPeople] = useState<Participant[]>([]);
+  const reload = () => {
+    api.getPlaylist(id).then(setPl, (e) => setError(e.message));
+    api.playlistParticipants(id).then(setPeople, () => {});
+  };
   useEffect(() => {
     reload();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -72,6 +77,9 @@ export default function PlaylistDetail() {
             </p>
             <h1 className="mt-2 text-4xl font-bold text-white sm:text-5xl">{pl.name}</h1>
             {pl.description && <p className="mt-3 text-white/70">{pl.description}</p>}
+            <div className="mt-4">
+              <AvatarStack people={people} label="người tham gia" />
+            </div>
             <div className="mt-4 flex items-center gap-3 text-sm text-white/60">
               <div className="h-1.5 w-48 rounded-full bg-white/15">
                 <div className={`h-1.5 rounded-full ${p.percent >= 100 ? "bg-emerald-500" : "bg-indigo-500"}`} style={{ width: `${p.percent}%` }} />
@@ -166,6 +174,7 @@ export default function PlaylistDetail() {
 function AddTopicsDialog({ playlistId, existing, onClose }: { playlistId: number; existing: number[]; onClose: () => void }) {
   const [topics, setTopics] = useState<Topic[] | null>(null);
   const [added, setAdded] = useState(new Set(existing));
+  const dialog = useDialog();
   const [query, setQuery] = useState("");
 
   useEffect(() => {
@@ -181,7 +190,20 @@ function AddTopicsDialog({ playlistId, existing, onClose }: { playlistId: number
 
   async function add(t: Topic) {
     setAdded((s) => new Set(s).add(t.id));
-    await api.addToPlaylist(playlistId, t.id).catch(() => {});
+    try {
+      if ((await confirmPublish(dialog, (mp) => api.addToPlaylist(playlistId, t.id, mp))) === null) undo(t);
+    } catch (e) {
+      undo(t);
+      dialog.alert("Không thêm được topic", e instanceof Error ? e.message : "");
+    }
+  }
+
+  function undo(t: Topic) {
+    setAdded((s) => {
+      const n = new Set(s);
+      n.delete(t.id);
+      return n;
+    });
   }
 
   return (
