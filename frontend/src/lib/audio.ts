@@ -13,6 +13,63 @@ export async function openMicrophone(): Promise<MediaStream> {
   });
 }
 
+/** True while the stream still has a live, enabled audio track. */
+export function isLive(stream: MediaStream | null): stream is MediaStream {
+  return !!stream && stream.getAudioTracks().some((t) => t.readyState === "live" && t.enabled);
+}
+
+const PREFERRED_TYPES = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg;codecs=opus"];
+
+function pickMimeType(): string | undefined {
+  if (typeof MediaRecorder === "undefined" || typeof MediaRecorder.isTypeSupported !== "function") return undefined;
+  return PREFERRED_TYPES.find((t) => MediaRecorder.isTypeSupported(t));
+}
+
+function closeStream(stream: MediaStream | null) {
+  stream?.getTracks().forEach((t) => t.stop());
+}
+
+/** Friendly message for microphone failures. */
+export function micErrorMessage(e: unknown): string {
+  if (e instanceof DOMException && (e.name === "NotAllowedError" || e.name === "SecurityError")) {
+    return "Không truy cập được micro. Hãy cho phép quyền ghi âm trong trình duyệt.";
+  }
+  if (e instanceof DOMException && (e.name === "NotFoundError" || e.name === "OverconstrainedError")) {
+    return "Không tìm thấy micro. Hãy cắm micro hoặc chọn thiết bị ghi âm khác.";
+  }
+  if (e instanceof DOMException && e.name === "NotReadableError") {
+    return "Micro đang bị ứng dụng khác sử dụng. Hãy đóng ứng dụng đó rồi thử lại.";
+  }
+  return e instanceof Error ? e.message : "Không bật được ghi âm.";
+}
+
+/**
+ * Starts a Recorder on the cached microphone stream. The stream is reopened
+ * when it has ended (microphone unplugged or switched, sleep, permission
+ * change), and once more if the browser refuses to record from it
+ * ("There was an error starting the MediaRecorder").
+ */
+export async function startRecorder(streamRef: { current: MediaStream | null }, opts: RecorderOptions): Promise<Recorder> {
+  if (!isLive(streamRef.current)) {
+    closeStream(streamRef.current);
+    streamRef.current = await openMicrophone();
+  }
+  try {
+    return new Recorder(streamRef.current!, opts);
+  } catch {
+    closeStream(streamRef.current);
+    streamRef.current = await openMicrophone();
+    try {
+      return new Recorder(streamRef.current, opts);
+    } catch (e) {
+      closeStream(streamRef.current);
+      streamRef.current = null;
+      console.error("MediaRecorder failed twice", e);
+      throw new Error("Không bật được ghi âm. Hãy kiểm tra micro (có đang bị ứng dụng khác dùng không?) rồi tải lại trang.");
+    }
+  }
+}
+
 export interface RecorderOptions {
   /** Called ~60x/s with input level 0..1. */
   onLevel?: (level: number) => void;
@@ -34,18 +91,21 @@ export class Recorder {
   private autoStopped = false;
   private heard = false;
 
+  /** Throws if the browser cannot record from this stream (see startRecorder). */
   constructor(stream: MediaStream, private opts: RecorderOptions = {}) {
-    this.media = new MediaRecorder(stream);
+    const mimeType = pickMimeType();
+    this.media = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
     this.media.ondataavailable = (e) => e.data.size > 0 && this.chunks.push(e.data);
     this.stopped = new Promise((resolve) => {
       this.media.onstop = () => resolve(new Blob(this.chunks, { type: this.media.mimeType }));
     });
+    // Start first: if the browser refuses, nothing else has been set up yet.
+    this.media.start(250);
     this.ctx = new AudioContext();
     void this.ctx.resume();
     const analyser = this.ctx.createAnalyser();
     analyser.fftSize = 1024;
     this.ctx.createMediaStreamSource(stream).connect(analyser);
-    this.media.start(250);
     this.monitor(analyser);
   }
 

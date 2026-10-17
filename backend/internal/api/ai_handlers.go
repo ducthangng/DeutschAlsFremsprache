@@ -39,6 +39,7 @@ type generateRequest struct {
 	Vocabulary []string `json:"vocabulary"`
 	Level      string   `json:"level"`
 	Lines      int      `json:"lines"`
+	Length     string   `json:"length"` // short | medium | long; empty = medium
 }
 
 type generateResponse struct {
@@ -75,6 +76,8 @@ func (in *generateRequest) validate() string {
 		return "trình độ không hợp lệ"
 	case in.Lines < 4 || in.Lines > 30:
 		return "số câu từ 4 đến 30"
+	case in.Length != "" && openai.SentenceLengths[in.Length] == "":
+		return "độ dài câu không hợp lệ"
 	}
 	for _, v := range in.Vocabulary {
 		if utf8.RuneCountInString(v) > 80 {
@@ -118,7 +121,7 @@ func (s *Server) generateScript(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, uid := r.Context(), auth.UserID(r.Context())
 	script, usage, err := s.openai.GenerateScript(ctx, openai.ScriptRequest{Language: in.Language, SpeechType: in.SpeechType,
-		Scenario: in.Scenario, Vocabulary: in.Vocabulary, Level: in.Level, Lines: in.Lines})
+		Scenario: in.Scenario, Vocabulary: in.Vocabulary, Level: in.Level, Lines: in.Lines, Length: in.Length})
 
 	// Tokens are billed even when the answer is unusable, so log before checking err.
 	var genID int64

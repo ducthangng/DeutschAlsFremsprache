@@ -107,7 +107,7 @@ export default function Layout() {
                   ["/playlists", "Playlist"],
                   ["/simulations", "Mô phỏng"],
                   ["/pocket", "Pocket"],
-                  ...(user.isAdmin ? [["/usage", "Chi phí"]] : []),
+                  ...(user.isAdmin ? [["/activity", "Hoạt động"], ["/usage", "Chi phí"]] : []),
                 ].map(([to, label]) => (
                   <NavLink
                     key={to}

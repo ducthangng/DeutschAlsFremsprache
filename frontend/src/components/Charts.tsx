@@ -131,3 +131,67 @@ export function GoalRing({ value, goal, size = 96 }: { value: number; goal: numb
     </svg>
   );
 }
+
+/**
+ * Line graph of how learners' average scores are distributed, with the
+ * current user marked. Single series: the title names it, no legend.
+ */
+export function ScoreDistribution({ buckets, mine }: { buckets: { from: number; users: number }[]; mine: number | null }) {
+  const [hover, setHover] = useState<number | null>(null);
+  const W = 480, H = 160, top = 28, bottom = 22;
+  const max = Math.max(1, ...buckets.map((b) => b.users));
+  const pts = buckets.map((b) => ({ x: ((b.from + 2.5) / 100) * W, y: H - bottom - (b.users / max) * (H - top - bottom) }));
+  // smooth curve through the bucket midpoints
+  let d = `M ${pts[0].x} ${pts[0].y}`;
+  for (let i = 1; i < pts.length; i++) {
+    const p0 = pts[i - 1], p1 = pts[i], cx = (p0.x + p1.x) / 2;
+    d += ` C ${cx} ${p0.y}, ${cx} ${p1.y}, ${p1.x} ${p1.y}`;
+  }
+  const base = H - bottom;
+  const area = `${d} L ${pts[pts.length - 1].x} ${base} L ${pts[0].x} ${base} Z`;
+  const yAt = (score: number) => {
+    const fx = Math.min(Math.max(score / 5 - 0.5, 0), pts.length - 1);
+    const i = Math.floor(fx), t = fx - i, a = pts[i], b = pts[Math.min(i + 1, pts.length - 1)];
+    return a.y + (b.y - a.y) * t;
+  };
+  const mx = mine === null ? 0 : (mine / 100) * W;
+  return (
+    <div className="relative">
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" role="img" aria-label="Phân bố điểm trung bình của người học">
+        <line x1={0} x2={W} y1={base} y2={base} stroke="#2a2e37" strokeWidth={1} />
+        {[0, 25, 50, 75, 100].map((t) => (
+          <text key={t} x={(t / 100) * W} y={H - 6} fontSize={10} fill="#737b8a" textAnchor={t === 0 ? "start" : t === 100 ? "end" : "middle"}>
+            {t}
+          </text>
+        ))}
+        <path d={area} fill={CHART_BLUE} opacity={0.1} />
+        <path d={d} fill="none" stroke={CHART_BLUE} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
+        {hover !== null && <line x1={pts[hover].x} x2={pts[hover].x} y1={top - 8} y2={base} stroke="#4b5160" strokeWidth={1} />}
+        {mine !== null && (
+          <g>
+            <line x1={mx} x2={mx} y1={yAt(mine)} y2={base} stroke="#ffda1a" strokeWidth={1.5} />
+            <circle cx={mx} cy={yAt(mine)} r={6} fill="#ffda1a" stroke="#17191f" strokeWidth={2} />
+            <text x={Math.min(Math.max(mx, 30), W - 30)} y={Math.max(yAt(mine) - 12, 11)} fontSize={11} fontWeight={700} fill="#eef0f4" textAnchor="middle" stroke="#17191f" strokeWidth={4} paintOrder="stroke">
+              Bạn · {Math.round(mine)}
+            </text>
+          </g>
+        )}
+        {/* hover targets wider than the line */}
+        {buckets.map((b, i) => (
+          <rect key={b.from} x={(b.from / 100) * W} y={0} width={W / 20} height={H} fill="transparent" onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(null)} />
+        ))}
+      </svg>
+      {hover !== null && (
+        <div
+          className="pointer-events-none absolute top-0 -translate-x-1/2 whitespace-nowrap rounded-lg bg-[#262a33] px-2.5 py-1.5 text-xs text-slate-800 shadow-xl ring-1 ring-white/10"
+          style={{ left: `${(pts[hover].x / W) * 100}%` }}
+        >
+          <b className="font-semibold">
+            {buckets[hover].from}–{buckets[hover].from + 4} điểm
+          </b>{" "}
+          · {buckets[hover].users} người
+        </div>
+      )}
+    </div>
+  );
+}

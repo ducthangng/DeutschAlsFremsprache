@@ -2,10 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useDialog } from "../components/Dialog";
 import { AssessedText } from "../components/LineText";
+import MicPermissionBanner from "../components/MicPermission";
 import SelectionLookup from "../components/SelectionLookup";
 import Spinner from "../components/Spinner";
 import { api, ApiError, LANGUAGES, type SimulationDetail, type SimulationTurn } from "../lib/api";
-import { openMicrophone, playAudio, Recorder, speak, type Playback } from "../lib/audio";
+import { micErrorMessage, playAudio, Recorder, speak, startRecorder, type Playback } from "../lib/audio";
 import { formatUsd } from "../lib/format";
 import { usePrefs } from "../lib/prefs";
 
@@ -101,13 +102,12 @@ export default function SimulationRun() {
     playback.current?.stop();
     setNotice("");
     try {
-      stream.current ??= await openMicrophone();
+      recorder.current = await startRecorder(stream, { onLevel: setLevel, onAutoStop: () => stopRecording(), silenceMs: 1800, maxMs: 45000 });
     } catch (e) {
-      setNotice(e instanceof DOMException ? "Không truy cập được micro. Hãy cho phép quyền ghi âm, hoặc bấm ⌨️ để gõ." : (e as Error).message);
+      setNotice(`${micErrorMessage(e)} Bạn cũng có thể bấm ⌨️ để gõ.`);
       return;
     }
     setPhase("recording");
-    recorder.current = new Recorder(stream.current, { onLevel: setLevel, onAutoStop: () => stopRecording(), silenceMs: 1800, maxMs: 45000 });
   }
 
   async function stopRecording() {
@@ -190,6 +190,7 @@ export default function SimulationRun() {
           <div ref={bottom} />
 
           {/* Composer */}
+          {active && <MicPermissionBanner className="mt-8" />}
           {active && (
             <div className="sticky bottom-4 mt-8 rounded-2xl bg-surface/95 p-4 shadow-2xl ring-1 ring-slate-200 backdrop-blur">
               {notice && <p className="mb-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">{notice}</p>}

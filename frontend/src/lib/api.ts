@@ -123,7 +123,10 @@ export interface GenerateRequest {
   vocabulary: string[];
   level: string;
   lines: number;
+  length: SentenceLength;
 }
+
+export type SentenceLength = "short" | "medium" | "long";
 
 export interface GenerateResult {
   title: string;
@@ -239,6 +242,13 @@ export interface VocabEntry {
   /** Seconds until due again for each answer. */
   nextIn: { again: number; hard: number; good: number; easy: number };
   createdAt: string;
+}
+
+export interface CompletionSummary {
+  session: { speakingSec: number; avgScore: number; gradings: number; dictationAvg: number; dictationAttempts: number };
+  speaking: { totalSec: number; goalSec: number; tenKPercent: number };
+  newWords: VocabEntry[];
+  rank: { avgScore: number | null; position: number; users: number; topPercent: number; buckets: { from: number; users: number }[] };
 }
 
 export interface DayStat {
@@ -387,6 +397,95 @@ export interface UsageReport {
   };
 }
 
+export type ActivityKind = "shadow" | "write" | "simulation" | "create";
+
+export interface Activity {
+  kind: ActivityKind;
+  userId: number;
+  userName: string;
+  userAvatarUrl: string;
+  topicId: number;
+  topicTitle: string;
+  language: Language | "";
+  topicLines: number;
+  simulationId: number;
+  simulationTitle: string;
+  simulationStatus: "" | "active" | "finished";
+  /** YYYY-MM-DD, Vietnam time */
+  day: string;
+  attempts: number;
+  passed: number;
+  lines: number;
+  avgScore: number;
+  startedAt: string;
+  lastAt: string;
+  completed: boolean;
+}
+
+export interface ReviewLine {
+  id: number;
+  position: number;
+  speaker: string;
+  text: string;
+  note: string;
+  attempts: { score: number; passed: boolean; audioMs: number; createdAt: string }[];
+  recordings: {
+    id: number;
+    score: number;
+    accuracy: number;
+    fluency: number;
+    completeness: number;
+    result: { tokens?: Token[]; recognized?: string };
+    createdAt: string;
+  }[];
+  dictation: { id: number; answer: string; score: number; passed: boolean; createdAt: string; tokens: DictationResult["tokens"] }[];
+}
+
+export type CostPeriod = "today" | "7d" | "month" | "all";
+export type CostKind = "assess" | "script" | "tts" | "image" | "simulation" | "translate";
+export type CostScope = "topic" | "simulation" | "none";
+
+export interface CostSplit {
+  requests: number;
+  costUsd: number;
+  gradingUsd: number;
+  aiUsd: number;
+  translationUsd: number;
+}
+
+export interface CostOverview {
+  since: string;
+  totals: { kind: CostKind; requests: number; costUsd: number; audioMs: number; tokens: number; chars: number }[];
+  users: (CostSplit & { userId: number; name: string; email: string; avatarUrl: string; lastAt: string })[];
+  topics: (CostSplit & { scope: CostScope; topicId: number; title: string; language: Language | ""; ownerName: string; users: number })[];
+}
+
+export interface CostEvent {
+  kind: CostKind;
+  id: number;
+  userId: number;
+  userName: string;
+  topicId: number;
+  topicTitle: string;
+  simulationId: number;
+  simulationTitle: string;
+  provider: string;
+  detail: string;
+  audioMs: number;
+  tokens: number;
+  chars: number;
+  costUsd: number;
+  createdAt: string;
+}
+
+export interface CostFilter {
+  period: CostPeriod;
+  userId?: number;
+  kind?: CostKind | "";
+  scope?: CostScope | "";
+  topicId?: number;
+}
+
 export interface AIUsagePeriod {
   scripts: number;
   scriptCostUsd: number;
@@ -527,6 +626,8 @@ export const api = {
     return (await request("/me/avatar", { method: "PUT", body: form })).json() as Promise<User>;
   },
   removeAvatar: () => json<User>("/me/avatar", "DELETE"),
+  /** Stats for the congratulations popup; since = when the practice session started. */
+  topicSummary: (id: number, since: string) => json<CompletionSummary>(`/topics/${id}/summary?since=${encodeURIComponent(since)}`),
   topicParticipants: (id: number) => json<Participant[]>(`/topics/${id}/participants`),
   playlistParticipants: (id: number) => json<Participant[]>(`/playlists/${id}/participants`),
   /** The topic owner's word list for the topic. */
@@ -570,9 +671,11 @@ export const api = {
   /** Generated reference speech (German + OpenAI); creates and stores it on first use. */
   speech: (itemId: number) => json<SpeechClip>(`/items/${itemId}/speech`, "POST"),
 
-  assess: async (itemId: number, wav: Blob) => {
+  /** focus: grade only that word/phrase of the sentence (re-practicing a mispronounced word). */
+  assess: async (itemId: number, wav: Blob, focus?: string) => {
     const form = new FormData();
     form.append("audio", wav, "recording.wav");
+    if (focus) form.append("focus", focus);
     return (await request(`/items/${itemId}/assess`, { method: "POST", body: form })).json() as Promise<AssessResult>;
   },
   recordingAudio: async (id: number) => (await request(`/recordings/${id}/audio`)).blob(),
@@ -583,6 +686,28 @@ export const api = {
   /** Vietnamese translations (cached server-side), same order as texts. */
   translate: (language: Language, texts: string[]) => json<TranslateResult>("/translate", "POST", { language, texts }),
   usage: () => json<UsageReport>("/usage"),
+  /** Admin: learner sessions, newest first, 50 per page. */
+  adminActivity: (f: { userId?: number; kind?: ActivityKind | "" }, offset = 0) => {
+    const q = new URLSearchParams({ offset: String(offset) });
+    if (f.userId) q.set("user", String(f.userId));
+    if (f.kind) q.set("kind", f.kind);
+    return json<{ activity: Activity[]; hasMore: boolean }>(`/admin/activity?${q}`);
+  },
+  /** Admin: a learner's work on a topic during one day. */
+  adminReview: (userId: number, topicId: number, day: string) => json<ReviewLine[]>(`/admin/review?user=${userId}&topic=${topicId}&day=${day}`),
+  adminRecordingAudio: async (id: number) => (await request(`/admin/recordings/${id}/audio`)).blob(),
+  adminSimulation: (id: number) => json<{ simulation: SimulationDetail; audioUrls: Record<number, string> }>(`/admin/simulations/${id}`),
+  /** Admin: app-wide costs by kind, user and topic. */
+  costOverview: (period: CostPeriod) => json<CostOverview>(`/usage/costs?period=${period}`),
+  /** Admin: the request log, newest first, 50 per page. */
+  costRequests: (f: CostFilter, offset = 0) => {
+    const q = new URLSearchParams({ period: f.period, offset: String(offset) });
+    if (f.userId) q.set("user", String(f.userId));
+    if (f.kind) q.set("kind", f.kind);
+    if (f.scope) q.set("scope", f.scope);
+    if (f.topicId) q.set("topic", String(f.topicId));
+    return json<{ requests: CostEvent[]; hasMore: boolean }>(`/usage/requests?${q}`);
+  },
 
   listVocab: () => json<VocabEntry[]>("/vocab"),
   createVocab: (input: VocabInput) => json<VocabEntry>("/vocab", "POST", input),

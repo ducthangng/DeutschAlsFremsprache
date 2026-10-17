@@ -5,6 +5,42 @@ import Spinner from "./Spinner";
 const NEAR = new Set(["case", "spelling", "typo"]);
 const NEAR_LABEL: Record<string, string> = { case: "viết hoa/thường", spelling: "umlaut / ß", typo: "lỗi chính tả nhỏ" };
 
+/** A graded dictation answer: right words green, near misses amber with the expected word below, wrong/missing/extra red. */
+export function DictationTokens({ tokens }: { tokens: DictationResult["tokens"] }) {
+  return (
+    <>
+      {tokens.map((t, i) => {
+        if (t.status === "ok") return <span key={i} className="text-emerald-600">{t.text}</span>;
+        if (NEAR.has(t.status))
+          return (
+            <span key={i} className="inline-flex flex-col items-start" title={NEAR_LABEL[t.status]}>
+              <span className="text-amber-500 underline decoration-dotted underline-offset-4">{t.text}</span>
+              <span className="text-xs text-slate-400">{t.expected}</span>
+            </span>
+          );
+        if (t.status === "missing")
+          return (
+            <span key={i} className="rounded border border-dashed border-red-200 px-1 text-red-500" title="Thiếu từ">
+              {t.expected}
+            </span>
+          );
+        if (t.status === "extra")
+          return (
+            <span key={i} className="text-red-500 line-through decoration-2" title="Thừa từ">
+              {t.text}
+            </span>
+          );
+        return (
+          <span key={i} className="inline-flex flex-col items-start" title="Sai từ">
+            <span className="font-semibold text-red-600 line-through decoration-2">{t.text}</span>
+            <span className="text-xs text-emerald-600">{t.expected}</span>
+          </span>
+        );
+      })}
+    </>
+  );
+}
+
 /** Underscores hinting the number and rough length of the words. */
 function blanks(text: string) {
   return text
@@ -168,34 +204,7 @@ export default function Dictation({ topic, play, stop, rate, speechStatus, meani
 
               {/* The learner's words, graded */}
               <p className="mt-5 flex flex-wrap gap-x-2 gap-y-3 text-2xl leading-snug">
-                {result.tokens.map((t, i) => {
-                  if (t.status === "ok") return <span key={i} className="text-emerald-600">{t.text}</span>;
-                  if (NEAR.has(t.status))
-                    return (
-                      <span key={i} className="inline-flex flex-col items-start" title={NEAR_LABEL[t.status]}>
-                        <span className="text-amber-500 underline decoration-dotted underline-offset-4">{t.text}</span>
-                        <span className="text-xs text-slate-400">{t.expected}</span>
-                      </span>
-                    );
-                  if (t.status === "missing")
-                    return (
-                      <span key={i} className="rounded border border-dashed border-red-200 px-1 text-red-500" title="Thiếu từ">
-                        {t.expected}
-                      </span>
-                    );
-                  if (t.status === "extra")
-                    return (
-                      <span key={i} className="text-red-500 line-through decoration-2" title="Thừa từ">
-                        {t.text}
-                      </span>
-                    );
-                  return (
-                    <span key={i} className="inline-flex flex-col items-start" title="Sai từ">
-                      <span className="font-semibold text-red-600 line-through decoration-2">{t.text}</span>
-                      <span className="text-xs text-emerald-600">{t.expected}</span>
-                    </span>
-                  );
-                })}
+                <DictationTokens tokens={result.tokens} />
               </p>
 
               <div className="mt-6 rounded-2xl bg-slate-100 px-5 py-4">

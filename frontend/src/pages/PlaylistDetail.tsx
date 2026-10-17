@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { topicProgress } from "../components/Cards";
+import { LanguageBadge, topicProgress } from "../components/Cards";
 import Cover from "../components/Cover";
 import { Modal, useDialog } from "../components/Dialog";
 import { AvatarStack } from "../components/Avatar";
 import { confirmPublish, PlaylistFormDialog } from "../components/PlaylistDialogs";
 import Spinner from "../components/Spinner";
-import { api, LANGUAGES, type Participant, type PlaylistDetail as Detail, type Topic } from "../lib/api";
+import { api, type Participant, type PlaylistDetail as Detail, type Topic } from "../lib/api";
 
 export default function PlaylistDetail() {
   const id = Number(useParams().id);
@@ -131,9 +131,12 @@ export default function PlaylistDetail() {
                   {pct >= 1 && <span className="absolute right-1.5 top-1.5 rounded-full bg-emerald-500 px-1.5 text-xs text-white">✓</span>}
                 </Cover>
                 <div className="min-w-0 flex-1">
-                  <h3 className="truncate font-semibold text-slate-900">{t.title}</h3>
+                  <h3 className="flex items-center gap-2 font-semibold text-slate-900">
+                    <LanguageBadge language={t.language} size="sm" />
+                    <span className="truncate">{t.title}</span>
+                  </h3>
                   <p className="truncate text-sm text-slate-400">
-                    {LANGUAGES[t.language].flag} {t.kind === "dialogue" ? "Hội thoại" : "Từ vựng"} · {t.itemCount} câu
+                    {t.kind === "dialogue" ? "Hội thoại" : "Từ vựng"} · {t.itemCount} câu
                     {t.description && ` · ${t.description}`}
                   </p>
                   <div className="mt-2 h-1 w-full max-w-xs rounded-full bg-slate-200">

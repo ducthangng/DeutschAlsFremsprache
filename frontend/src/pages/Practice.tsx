@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import AddVocabDialog from "../components/AddVocabDialog";
+import CompletionDialog from "../components/CompletionDialog";
+import WordDrill, { wrongWords } from "../components/WordDrill";
 import { AvatarStack } from "../components/Avatar";
 import Dictation from "../components/Dictation";
+import MicPermissionBanner from "../components/MicPermission";
 import { AssessedText, KaraokeText } from "../components/LineText";
 import { AddToPlaylistDialog } from "../components/PlaylistDialogs";
 import RecordingList from "../components/RecordingList";
@@ -12,7 +15,7 @@ import { SpeedControl, VoiceSelect } from "../components/SpeechControls";
 import Spinner from "../components/Spinner";
 import Popover from "../components/Popover";
 import { api, LANGUAGES, saveBlob, type AssessResult, type GradingUsage, type Item, type Participant, type SpeechClip, type TopicCost, type TopicDetail } from "../lib/api";
-import { openMicrophone, playAudio, Recorder, speak, voicesFor, type Playback } from "../lib/audio";
+import { micErrorMessage, playAudio, Recorder, speak, startRecorder, voicesFor, type Playback } from "../lib/audio";
 import { formatUsd } from "../lib/format";
 import { usePrefs } from "../lib/prefs";
 
@@ -57,12 +60,17 @@ export default function Practice() {
   const [openaiTts, setOpenaiTts] = useState(false);
   const [speechStatus, setSpeechStatus] = useState<SpeechStatus>("");
   const [costs, setCosts] = useState<TopicCost[] | null>(null);
-  const [celebrate, setCelebrate] = useState(false);
+  // Congratulations popup after finishing the topic, for the mode that was finished.
+  const [completed, setCompleted] = useState<"shadow" | "write" | null>(null);
+  const sessionStart = useRef(new Date().toISOString());
+  const dictationPassedThisSession = useRef(new Set<number>());
+  const dictationCompleted = useRef(false);
   const [prefs, setPrefs] = usePrefs();
   const [params, setParams] = useSearchParams();
   const mode: "shadow" | "write" = params.get("mode") === "write" ? "write" : "shadow";
   const [addToPlaylist, setAddToPlaylist] = useState(false);
   const [addVocab, setAddVocab] = useState(false);
+  const [replaying, setReplaying] = useState<number | null>(null);
   const [people, setPeople] = useState<Participant[]>([]);
 
   // Async flows read the latest state through refs; runId invalidates stale flows.
@@ -179,6 +187,25 @@ export default function Practice() {
   }
 
   /** Plays one line once at a given speed (used by Listen -> Write). */
+  /**
+   * Speaker button: replay a line's sample without touching the practice flow
+   * (no recording, the shown result stays). Clicking again stops it.
+   */
+  async function replay(item: Item) {
+    if (phase === "recording" || phase === "assessing") return;
+    if (replaying === item.id) {
+      playback.current?.stop();
+      setReplaying(null);
+      return;
+    }
+    setReplaying(item.id);
+    try {
+      await playOnce(item, prefs.rate);
+    } finally {
+      setReplaying((id) => (id === item.id ? null : id));
+    }
+  }
+
   async function playOnce(item: Item, rate: number) {
     playback.current?.stop();
     const { topic, openaiTts } = latest.current;
@@ -238,20 +265,19 @@ export default function Practice() {
   }
 
   async function startRecording(item: Item, idx: number, run: number) {
-    if (!stream.current) {
-      try {
-        stream.current = await openMicrophone();
-      } catch (e) {
-        throw new Error(e instanceof DOMException ? "Không truy cập được micro. Hãy cho phép quyền ghi âm trong trình duyệt." : (e as Error).message);
-      }
+    let rec: Recorder;
+    try {
+      rec = await startRecorder(stream, { onLevel: setLevel, onAutoStop: () => finishRecording(item, idx, run) });
+    } catch (e) {
+      throw new Error(micErrorMessage(e));
     }
-    if (run !== runId.current) return;
+    if (run !== runId.current) {
+      rec.cancel();
+      return;
+    }
     setLevel(0);
     setPhase("recording");
-    recorder.current = new Recorder(stream.current, {
-      onLevel: setLevel,
-      onAutoStop: () => finishRecording(item, idx, run),
-    });
+    recorder.current = rec;
   }
 
   async function finishRecording(item: Item, idx: number, run: number) {
@@ -282,7 +308,8 @@ export default function Practice() {
       if (res.usage && res.usage.costUsd > 0) refreshCosts();
       if (res.passed) recordSessionPass(item.id);
       const items = latest.current.topic!.items;
-      if (res.passed && latest.current.prefs.autoAdvance && idx + 1 < items.length) {
+      // Passed but with wrong words: wait, so the learner can re-practice them (WordDrill).
+      if (res.passed && wrongWords(res.tokens).length === 0 && latest.current.prefs.autoAdvance && idx + 1 < items.length) {
         advanceTimer.current = window.setTimeout(() => run === runId.current && runLine(idx + 1), ADVANCE_DELAY_MS);
       }
     } catch (e) {
@@ -300,9 +327,26 @@ export default function Practice() {
     const mine = topic.items.filter(isMine);
     if (mine.length > 0 && mine.every((it) => passedThisSession.current.has(it.id))) {
       completedThisSession.current = true;
-      setCelebrate(true);
-      api.completeTopic(topic.id).then((t) => setTopic((cur) => cur && { ...cur, completions: t.completions }), () => {});
+      finishTopic(topic.id, "shadow");
     }
+  }
+
+  /** Listen -> Write: complete once every line has passed, with at least one pass in this session. */
+  function recordDictationPass(itemId: number, passed: boolean) {
+    const { topic } = latest.current;
+    if (!topic || !passed || dictationCompleted.current) return;
+    dictationPassedThisSession.current.add(itemId);
+    const allPassed = topic.items.every((it) => it.id === itemId || it.dictation?.passed);
+    if (allPassed) {
+      dictationCompleted.current = true;
+      finishTopic(topic.id, "write");
+    }
+  }
+
+  function finishTopic(topicId: number, m: "shadow" | "write") {
+    api.completeTopic(topicId).then((t) => setTopic((cur) => cur && { ...cur, completions: t.completions }), () => {});
+    // let the last result show for a moment before the celebration
+    window.setTimeout(() => setCompleted(m), 900);
   }
 
   function stopEverything() {
@@ -345,6 +389,7 @@ export default function Practice() {
   const keyHandler = useRef<(e: KeyboardEvent) => void>(() => {});
   keyHandler.current = (e: KeyboardEvent) => {
     if (mode === "write") return; // typing; Listen -> Write has its own keys
+    if (phase === "result" && result?.passed && wrongWords(result.tokens).length > 0) return; // word drill in progress
     if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) return;
     if (e.code === "Space") {
       e.preventDefault();
@@ -500,14 +545,6 @@ export default function Practice() {
         </div>
       </div>
 
-      {celebrate && (
-        <div className="mt-4 flex items-center justify-between rounded-xl bg-emerald-50 px-4 py-3 text-emerald-800 ring-1 ring-emerald-200">
-          <span>🎉 Bạn đã đọc đạt mọi câu của topic này!</span>
-          <button onClick={() => setCelebrate(false)} className="text-sm text-emerald-700 hover:underline">
-            Đóng
-          </button>
-        </div>
-      )}
 
       {/* Mode: speak along, or listen and write */}
       <div className="mt-6 inline-flex rounded-xl bg-surface p-1 ring-1 ring-slate-200">
@@ -527,6 +564,7 @@ export default function Practice() {
         ))}
       </div>
 
+      {mode === "shadow" && <MicPermissionBanner className="mt-4" />}
       {mode === "shadow" && mock && <p className="mt-4 rounded-lg bg-amber-50 px-4 py-2 text-sm text-amber-800">Chế độ demo: điểm số là giả lập (chưa cấu hình Azure Speech).</p>}
 
       {mode === "write" ? (
@@ -537,7 +575,10 @@ export default function Practice() {
           rate={prefs.rate}
           speechStatus={speechStatus}
           meaningOf={meaningOf}
-          onGraded={(itemId, best) => setTopic((t) => t && { ...t, items: t.items.map((it) => (it.id === itemId ? { ...it, dictation: best } : it)) })}
+          onGraded={(itemId, best) => {
+            recordDictationPass(itemId, best.passed);
+            setTopic((t) => t && { ...t, items: t.items.map((it) => (it.id === itemId ? { ...it, dictation: best } : it)) });
+          }}
         />
       ) : (
       <div className="mt-6 grid gap-6 lg:grid-cols-5">
@@ -558,13 +599,26 @@ export default function Practice() {
 
             {item.imageUrl && <img src={item.imageUrl} alt="" className="mt-6 max-h-64 w-full rounded-2xl object-cover" />}
 
-            <p data-lookup data-sentence={item.text} data-image={item.imageKey} className="mt-6 min-h-[5rem] text-3xl font-medium leading-snug selection:bg-amber-200 sm:text-4xl">
-              {phase === "result" && result ? (
-                <AssessedText tokens={result.tokens} />
-              ) : (
-                <KaraokeText text={item.text} progress={progress} active={phase === "playing"} />
-              )}
-            </p>
+            <div className="mt-6 flex items-start gap-4">
+              <p data-lookup data-sentence={item.text} data-image={item.imageKey} className="min-h-[5rem] flex-1 text-3xl font-medium leading-snug selection:bg-amber-200 sm:text-4xl">
+                {phase === "result" && result ? (
+                  <AssessedText tokens={result.tokens} />
+                ) : (
+                  <KaraokeText text={item.text} progress={progress} active={phase === "playing"} />
+                )}
+              </p>
+              <button
+                onClick={() => replay(item)}
+                disabled={phase === "recording" || phase === "assessing" || phase === "playing"}
+                title={replaying === item.id ? "Dừng" : "Nghe lại câu này"}
+                aria-label={replaying === item.id ? "Dừng" : "Nghe lại câu này"}
+                className={`mt-1 flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-xl transition disabled:opacity-30 ${
+                  replaying === item.id ? "bg-indigo-600 text-white" : "bg-indigo-100 hover:bg-indigo-200"
+                }`}
+              >
+                {replaying === item.id ? (speechStatus ? <Spinner className="h-5 w-5 border-white/30 border-t-white" /> : "■") : "🔊"}
+              </button>
+            </div>
             {meaningOf(item) && (
               <p className="mt-3 text-lg text-slate-400" title={item.note ? undefined : "Máy dịch"}>
                 {meaningOf(item)}
@@ -638,10 +692,25 @@ export default function Practice() {
                     <span className={`rounded-full px-3 py-1 text-sm font-semibold ${result.passed ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}`}>
                       {result.passed ? "✓ Đạt" : `Chưa đạt · cần ${result.threshold}`}
                     </span>
-                    {result.passed && prefs.autoAdvance && index + 1 < items.length && <span className="text-sm text-slate-400">Sang câu tiếp…</span>}
+                    {result.passed && prefs.autoAdvance && index + 1 < items.length && wrongWords(result.tokens).length === 0 && (
+                      <span className="text-sm text-slate-400">Sang câu tiếp…</span>
+                    )}
                     <span className="ml-auto text-xs text-slate-400">{result.usage && <UsageNote usage={result.usage} />}</span>
                   </div>
                   <ScorePanel result={result} />
+                  {result.passed && wrongWords(result.tokens).length > 0 && (
+                    <WordDrill
+                      key={`${item.id}-${result.scores.pronScore}`}
+                      itemId={item.id}
+                      words={wrongWords(result.tokens)}
+                      language={topic.language}
+                      rate={prefs.rate}
+                      voiceURI={prefs.voice[topic.language] || undefined}
+                      stream={stream}
+                      hasNext={index + 1 < items.length}
+                      onNext={() => runLine(index + 1)}
+                    />
+                  )}
                   <div className="flex flex-wrap items-center gap-2">
                     <button onClick={() => runLine(index, { skipModel: true })} className="rounded-xl bg-indigo-600 px-5 py-2.5 font-semibold text-white hover:bg-indigo-500">
                       🎤 Đọc lại
@@ -730,6 +799,20 @@ export default function Practice() {
                     <span className={`mt-0.5 w-4 shrink-0 text-center ${it.recordings.length ? "text-emerald-500" : "text-slate-200"}`}>
                       {it.recordings.length ? "✓" : "•"}
                     </span>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation(); // listen without jumping to the line
+                        replay(it);
+                      }}
+                      disabled={phase === "recording" || phase === "assessing" || phase === "playing"}
+                      title={replaying === it.id ? "Dừng" : "Nghe câu này"}
+                      aria-label={replaying === it.id ? "Dừng" : "Nghe câu này"}
+                      className={`-my-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs transition disabled:opacity-30 ${
+                        replaying === it.id ? "bg-indigo-600 text-white" : "text-slate-400 hover:bg-indigo-100 hover:text-slate-800"
+                      }`}
+                    >
+                      {replaying === it.id ? "■" : "🔊"}
+                    </button>
                     <span className="min-w-0 flex-1">
                       <span data-lookup data-sentence={it.text} data-image={it.imageKey} className="selection:bg-amber-200">
                         {it.speaker && <span className={`font-semibold ${speakerColor(it.speaker)}`}>{it.speaker}: </span>}
@@ -748,6 +831,7 @@ export default function Practice() {
 
       {addToPlaylist && <AddToPlaylistDialog topicId={topic.id} open onClose={() => setAddToPlaylist(false)} />}
       {addVocab && <AddVocabDialog topic={topic} onClose={() => setAddVocab(false)} />}
+      {completed && <CompletionDialog topic={topic} since={sessionStart.current} mode={completed} onClose={() => setCompleted(null)} />}
     </div>
   );
 }

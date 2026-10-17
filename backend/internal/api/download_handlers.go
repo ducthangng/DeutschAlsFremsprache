@@ -82,7 +82,12 @@ func (s *Server) recordingAudio(w http.ResponseWriter, r *http.Request) {
 		}
 		setAttachment(w, slug(t.Title, 40)+"-"+recordingName(item, rec))
 	}
-	obj, err := s.openRecording(ctx, rec.FileName)
+	s.streamRecording(w, r, rec)
+}
+
+// streamRecording writes a take's WAV.
+func (s *Server) streamRecording(w http.ResponseWriter, r *http.Request, rec *store.Recording) {
+	obj, err := s.openRecording(r.Context(), rec.FileName)
 	if err != nil {
 		log.Printf("open recording %d: %v", rec.ID, err)
 		writeError(w, http.StatusNotFound, "không tìm thấy file ghi âm")

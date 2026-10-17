@@ -15,6 +15,7 @@ import Playlists from "./pages/Playlists";
 import SimulationRun from "./pages/SimulationRun";
 import Simulations from "./pages/Simulations";
 import Usage from "./pages/Usage";
+import ActivityPage from "./pages/Activity";
 
 /** The cost page is for the admin only (the API refuses everyone else too). */
 function RequireAdmin({ children }: { children: ReactNode }) {
@@ -51,6 +52,7 @@ export default function App() {
         <Route path="/simulations/:id" element={<RequireAuth><SimulationRun /></RequireAuth>} />
         <Route path="/pocket" element={<RequireAuth><Pocket /></RequireAuth>} />
         <Route path="/usage" element={<RequireAuth><RequireAdmin><Usage /></RequireAdmin></RequireAuth>} />
+        <Route path="/activity" element={<RequireAuth><RequireAdmin><ActivityPage /></RequireAdmin></RequireAuth>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>

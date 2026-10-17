@@ -112,3 +112,72 @@ func TestPublicPlaylistRulesVocabAvatarsAdmin(t *testing.T) {
 		t.Fatalf("remove avatar: %d %+v", code, u)
 	}
 }
+
+func TestBuildRanking(t *testing.T) {
+	avgs := map[int64]float64{1: 92, 2: 80, 3: 71.25, 4: 60, 5: 99.9}
+	r := buildRanking(avgs, 3)
+	if r.Position != 4 || r.Users != 5 || r.TopPercent != 80 || *r.AvgScore != 71.3 {
+		t.Fatalf("rank: %+v", r)
+	}
+	if r.Buckets[14].Users != 1 || r.Buckets[16].Users != 1 || r.Buckets[18].Users != 1 || r.Buckets[19].Users != 1 || r.Buckets[12].Users != 1 {
+		t.Fatalf("buckets: %+v", r.Buckets)
+	}
+	if r := buildRanking(avgs, 5); r.Position != 1 || r.TopPercent != 20 {
+		t.Fatalf("best: %+v", r)
+	}
+	if r := buildRanking(avgs, 42); r.AvgScore != nil || r.Users != 5 {
+		t.Fatalf("ungraded: %+v", r)
+	}
+}
+
+func TestTopicSummary(t *testing.T) {
+	_, srv, _ := newTestAPI(t)
+	c := other(t, srv.URL)
+	var tp store.Topic
+	c.json("POST", "/api/topics", topicInput{Title: "x", Language: "de-DE", Kind: "vocabulary", Content: "Hallo Welt"}, &tp)
+	var d struct{ Items []struct{ ID int64 } }
+	c.json("GET", "/api/topics/"+itoa(tp.ID), nil, &d)
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	fw, _ := mw.CreateFormFile("audio", "a.wav")
+	fw.Write(silentWAV(32000)) // 2 s
+	mw.Close()
+	c.do("POST", "/api/items/"+itoa(d.Items[0].ID)+"/assess", &body, mw.FormDataContentType(), nil)
+	c.json("POST", "/api/vocab", vocabInput{Language: "de-DE", Term: "die Welt", Meaning: "thế giới"}, nil)
+
+	var sum completionSummary
+	if code := c.json("GET", "/api/topics/"+itoa(tp.ID)+"/summary?since=2020-01-01T00:00:00Z", nil, &sum); code != 200 {
+		t.Fatalf("summary: %d", code)
+	}
+	if sum.Session.SpeakingSec != 2 || sum.Speaking.TotalSec != 2 || sum.Speaking.GoalSec != 600 || len(sum.NewWords) != 1 ||
+		sum.Rank.Users != 1 || sum.Rank.TopPercent != 100 || sum.Rank.AvgScore == nil {
+		t.Fatalf("summary: %+v", sum)
+	}
+}
+
+func TestAssessFocusWord(t *testing.T) {
+	_, srv, _ := newTestAPI(t)
+	c := other(t, srv.URL)
+	var tp store.Topic
+	c.json("POST", "/api/topics", topicInput{Title: "x", Language: "de-DE", Kind: "vocabulary", Content: "Wo ist Gleis drei?"}, &tp)
+	var d struct{ Items []struct{ ID int64 } }
+	c.json("GET", "/api/topics/"+itoa(tp.ID), nil, &d)
+	send := func(focus string) (int, assessResponse) {
+		var body bytes.Buffer
+		mw := multipart.NewWriter(&body)
+		fw, _ := mw.CreateFormFile("audio", "a.wav")
+		fw.Write(silentWAV(16000))
+		mw.WriteField("focus", focus)
+		mw.Close()
+		var res assessResponse
+		code := c.do("POST", "/api/items/"+itoa(d.Items[0].ID)+"/assess", &body, mw.FormDataContentType(), &res)
+		return code, res
+	}
+	code, res := send("Gleis")
+	if code != 200 || len(res.Tokens) != 1 || res.Tokens[0].Text != "Gleis" || res.Recording != nil {
+		t.Fatalf("focus word: %d %+v", code, res)
+	}
+	if code, _ := send("Bahnhof"); code != 400 {
+		t.Fatalf("word not in sentence: %d", code)
+	}
+}

@@ -105,6 +105,7 @@ func (s *Server) Handler() http.Handler {
 	protected("DELETE /api/playlists/{id}/follow", s.setFollow(false))
 	protected("GET /api/topics/{id}/playlists", s.topicPlaylists)
 	protected("GET /api/topics/{id}/participants", s.topicParticipants)
+	protected("GET /api/topics/{id}/summary", s.topicSummary)
 	protected("GET /api/topics/{id}/vocabulary", s.topicVocabulary)
 	protected("GET /api/playlists/{id}/participants", s.playlistParticipants)
 	protected("POST /api/vocab/bulk", s.bulkAddVocab)
@@ -125,6 +126,12 @@ func (s *Server) Handler() http.Handler {
 
 	protected("POST /api/translate", s.translateTexts)
 	protected("GET /api/usage", s.usage)
+	protected("GET /api/usage/costs", s.costOverview)
+	protected("GET /api/usage/requests", s.costRequests)
+	protected("GET /api/admin/activity", s.adminActivity)
+	protected("GET /api/admin/review", s.adminReview)
+	protected("GET /api/admin/recordings/{id}/audio", s.adminRecordingAudio)
+	protected("GET /api/admin/simulations/{id}", s.adminSimulation)
 
 	protected("GET /api/vocab", s.listVocab)
 	protected("POST /api/vocab", s.createVocab)

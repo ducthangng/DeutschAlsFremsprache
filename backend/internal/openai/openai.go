@@ -64,6 +64,14 @@ type ScriptRequest struct {
 	Vocabulary []string // terms that must appear
 	Level      string   // A1..C2
 	Lines      int
+	Length     string // sentence length: short | medium | long
+}
+
+// SentenceLengths maps a sentence-length choice to the words per line asked for.
+var SentenceLengths = map[string]string{
+	"short":  "3-7 words",
+	"medium": "8-14 words",
+	"long":   "15-25 words",
 }
 
 type ScriptLine struct {
@@ -145,7 +153,12 @@ func scriptPrompt(r ScriptRequest) string {
 	} else {
 		b.WriteString("In \"vocabulary\" list 5-8 useful key terms from the script with their Vietnamese meaning.\n")
 	}
-	b.WriteString("Rules: each line at most 20 words; everyday, correct, idiomatic language; no stage directions, no quotes, no numbering. " +
+	words := SentenceLengths[r.Length]
+	if words == "" {
+		words = SentenceLengths["medium"]
+	}
+	fmt.Fprintf(&b, "Sentence length: each spoken line should be %s long (a single vocabulary term may be shorter).\n", words)
+	b.WriteString("Rules: everyday, correct, idiomatic language; no stage directions, no quotes, no numbering. " +
 		"\"vietnamese\" is a natural translation, not word-by-word. \"title\" is in the target language, \"description\" in Vietnamese.")
 	return b.String()
 }

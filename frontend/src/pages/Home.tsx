@@ -1,17 +1,22 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { PlaylistCard, Row, TopicCard, topicProgress } from "../components/Cards";
+import { LanguageBadge, PlaylistCard, Row, TopicCard, topicProgress } from "../components/Cards";
 import Cover from "../components/Cover";
 import { useDialog } from "../components/Dialog";
 import { AddToPlaylistDialog, PlaylistFormDialog } from "../components/PlaylistDialogs";
 import Popover from "../components/Popover";
 import Spinner from "../components/Spinner";
-import { api, LANGUAGES, type Playlist, type Topic } from "../lib/api";
+import { api, type Playlist, type Topic } from "../lib/api";
+
+/** One-line explanation for people who have never used playlists. */
+const PLAYLIST_INTRO =
+  "Playlist là một lộ trình học gồm nhiều topic xếp theo thứ tự. Theo dõi một playlist để luyện lần lượt từng topic và xem tiến độ của bạn.";
 
 export default function Home() {
   const [mine, setMine] = useState<Topic[] | null>(null);
   const [community, setCommunity] = useState<Topic[]>([]);
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
+  const [publicPlaylists, setPublicPlaylists] = useState<Playlist[]>([]);
   const [error, setError] = useState("");
   const [addTo, setAddTo] = useState<number | null>(null);
   const [newPlaylist, setNewPlaylist] = useState(false);
@@ -22,6 +27,7 @@ export default function Home() {
     api.listTopics().then(setMine, (e) => setError(e.message));
     api.publicTopics().then(setCommunity, () => {});
     api.myPlaylists().then(setPlaylists, () => {});
+    api.publicPlaylists().then(setPublicPlaylists, () => {});
   }, []);
 
   const { hero, continuing, others } = useMemo(() => {
@@ -98,6 +104,90 @@ export default function Home() {
   if (error) return <p className="mx-auto mt-16 max-w-xl rounded-lg bg-red-50 px-4 py-3 text-red-700">{error}</p>;
   if (!mine) return <Spinner className="mx-auto mt-24" />;
 
+  const createCard = "flex aspect-video w-64 shrink-0 snap-start flex-col items-center justify-center rounded-xl border border-dashed border-slate-300 text-slate-400 transition hover:border-indigo-300 hover:text-slate-700 sm:w-72";
+  // No topic or no playlist of their own yet: show public content first.
+  const newcomer = mine.length === 0 || playlists.length === 0;
+  const othersPublicPlaylists = publicPlaylists.filter((p) => !p.isOwner && !p.following);
+  const english = others.filter((t) => t.language === "en-US");
+  const german = others.filter((t) => t.language === "de-DE");
+  const exploreLink = (
+    <Link to="/public" className="shrink-0 text-sm text-slate-400 hover:text-slate-700">
+      Khám phá ›
+    </Link>
+  );
+
+  const continuingRow = continuing.length > 0 && (
+    <Row title="Tiếp tục luyện">
+      {continuing.map((t) => (
+        <TopicCard key={t.id} topic={t} />
+      ))}
+    </Row>
+  );
+
+  const publicPlaylistsRow = othersPublicPlaylists.length > 0 && (
+    <Row title="Playlist công khai" subtitle={PLAYLIST_INTRO} action={exploreLink}>
+      {othersPublicPlaylists.slice(0, 20).map((p) => (
+        <PlaylistCard key={p.id} playlist={p} />
+      ))}
+    </Row>
+  );
+
+  const englishRow = english.length > 0 && (
+    <Row title={<><LanguageBadge language="en-US" /> Topic tiếng Anh công khai</>} action={exploreLink}>
+      {english.slice(0, 20).map((t) => (
+        <TopicCard key={t.id} topic={t} />
+      ))}
+    </Row>
+  );
+
+  const germanRow = german.length > 0 && (
+    <Row title={<><LanguageBadge language="de-DE" /> Topic tiếng Đức công khai</>} action={exploreLink}>
+      {german.slice(0, 20).map((t) => (
+        <TopicCard key={t.id} topic={t} />
+      ))}
+    </Row>
+  );
+
+  const myPlaylistsRow = (
+    <Row
+      title="Playlist của bạn"
+      subtitle={playlists.length === 0 ? PLAYLIST_INTRO : undefined}
+      action={
+        <Link to="/playlists" className="shrink-0 text-sm text-slate-400 hover:text-slate-700">
+          Xem tất cả ›
+        </Link>
+      }
+    >
+      {playlists.map((p) => (
+        <PlaylistCard key={p.id} playlist={p} />
+      ))}
+      <button onClick={() => setNewPlaylist(true)} className={createCard}>
+        <span className="text-3xl">＋</span>
+        <span className="mt-1 text-sm">Playlist mới</span>
+      </button>
+    </Row>
+  );
+
+  const myTopicsRow = (
+    <Row title="Topic của tôi">
+      <Link to="/topics/new" className={createCard}>
+        <span className="text-3xl">＋</span>
+        <span className="mt-1 text-sm">Tạo topic</span>
+      </Link>
+      {mine.map((t) => (
+        <TopicCard key={t.id} topic={t} menu={ownerMenu(t)} />
+      ))}
+    </Row>
+  );
+
+  const communityRow = others.length > 0 && (
+    <Row title="Mới từ cộng đồng" action={exploreLink}>
+      {others.slice(0, 20).map((t) => (
+        <TopicCard key={t.id} topic={t} />
+      ))}
+    </Row>
+  );
+
   return (
     <div className="pb-20">
       {hero ? (
@@ -112,60 +202,24 @@ export default function Home() {
         </section>
       )}
 
-      {continuing.length > 0 && (
-        <Row title="Tiếp tục luyện">
-          {continuing.map((t) => (
-            <TopicCard key={t.id} topic={t} />
-          ))}
-        </Row>
-      )}
-
-      <Row
-        title="Playlist của bạn"
-        action={
-          <Link to="/playlists" className="text-sm text-slate-400 hover:text-slate-700">
-            Xem tất cả ›
-          </Link>
-        }
-      >
-        {playlists.map((p) => (
-          <PlaylistCard key={p.id} playlist={p} />
-        ))}
-        <button
-          onClick={() => setNewPlaylist(true)}
-          className="flex aspect-video w-64 shrink-0 snap-start flex-col items-center justify-center rounded-xl border border-dashed border-slate-300 text-slate-400 transition hover:border-indigo-300 hover:text-slate-700 sm:w-72"
-        >
-          <span className="text-3xl">＋</span>
-          <span className="mt-1 text-sm">Playlist mới</span>
-        </button>
-      </Row>
-
-      <Row title="Topic của tôi">
-        <Link
-          to="/topics/new"
-          className="flex aspect-video w-64 shrink-0 snap-start flex-col items-center justify-center rounded-xl border border-dashed border-slate-300 text-slate-400 transition hover:border-indigo-300 hover:text-slate-700 sm:w-72"
-        >
-          <span className="text-3xl">＋</span>
-          <span className="mt-1 text-sm">Tạo topic</span>
-        </Link>
-        {mine.map((t) => (
-          <TopicCard key={t.id} topic={t} menu={ownerMenu(t)} />
-        ))}
-      </Row>
-
-      {others.length > 0 && (
-        <Row
-          title="Mới từ cộng đồng"
-          action={
-            <Link to="/public" className="text-sm text-slate-400 hover:text-slate-700">
-              Khám phá ›
-            </Link>
-          }
-        >
-          {others.slice(0, 20).map((t) => (
-            <TopicCard key={t.id} topic={t} />
-          ))}
-        </Row>
+      {newcomer ? (
+        // Nothing of their own yet: lead with what the community shares.
+        <>
+          {publicPlaylistsRow}
+          {englishRow}
+          {germanRow}
+          {continuingRow}
+          {myPlaylistsRow}
+          {myTopicsRow}
+        </>
+      ) : (
+        <>
+          {continuingRow}
+          {myPlaylistsRow}
+          {myTopicsRow}
+          {communityRow}
+          {publicPlaylistsRow}
+        </>
       )}
 
       {addTo !== null && <AddToPlaylistDialog topicId={addTo} open onClose={() => {
@@ -187,8 +241,9 @@ function Hero({ topic, continuing, onAddToPlaylist }: { topic: Topic; continuing
         <div className="absolute inset-0 flex items-end px-4 pb-12 sm:px-10">
           <div className="max-w-xl">
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-white/50">
-              {continuing ? "Tiếp tục luyện" : "Gợi ý cho bạn"} · {LANGUAGES[topic.language].flag} {topic.kind === "dialogue" ? "Hội thoại" : "Từ vựng"}
+              {continuing ? "Tiếp tục luyện" : "Gợi ý cho bạn"} · {topic.kind === "dialogue" ? "Hội thoại" : "Từ vựng"}
             </p>
+            <LanguageBadge language={topic.language} className="mt-3" />
             <h1 className="mt-2 text-4xl font-bold leading-tight text-white sm:text-5xl">{topic.title}</h1>
             {topic.description && <p className="mt-3 line-clamp-2 text-white/70">{topic.description}</p>}
             {pct > 0 && (

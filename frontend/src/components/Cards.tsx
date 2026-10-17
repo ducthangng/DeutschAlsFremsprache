@@ -1,6 +1,6 @@
 import { useRef, type ReactNode } from "react";
 import { Link } from "react-router-dom";
-import { LANGUAGES, type Playlist, type Topic } from "../lib/api";
+import { type Language, type Playlist, type Topic } from "../lib/api";
 import Cover from "./Cover";
 
 /** Viewer progress of a topic, 0..1: the better of shadowing and listen-write. */
@@ -9,14 +9,42 @@ export function topicProgress(t: Topic) {
   return Math.max(t.passedCount, t.dictationPassedCount) / t.itemCount;
 }
 
+/*
+ * Language badge: German = gold (flag colors), English = blue. It carries the
+ * name in words too, because Windows shows flag emoji only as letters ("DE").
+ * Raw hex on purpose: the theme remaps named shades.
+ */
+const LANG_BADGE: Record<Language, { label: string; flag: string; cls: string }> = {
+  "de-DE": { label: "Đức", flag: "🇩🇪", cls: "bg-[#ffce00] text-black" },
+  "en-US": { label: "Anh", flag: "🇺🇸", cls: "bg-[#2f7cf6] text-white" },
+};
+
+export function LanguageBadge({ language, size = "md", className = "" }: { language: Language; size?: "sm" | "md"; className?: string }) {
+  const b = LANG_BADGE[language];
+  return (
+    <span
+      title={language === "de-DE" ? "Tiếng Đức" : "Tiếng Anh"}
+      className={`inline-flex shrink-0 items-center gap-1 rounded-md font-bold uppercase tracking-wide shadow-sm ${b.cls} ${
+        size === "sm" ? "px-1.5 py-px text-[10px]" : "px-2 py-0.5 text-[11px]"
+      } ${className}`}
+    >
+      <span className="text-[1.1em] leading-none">{b.flag}</span>
+      {b.label}
+    </span>
+  );
+}
+
 /** A horizontally scrolling row of cards with a heading, Netflix style. */
-export function Row({ title, action, children }: { title: string; action?: ReactNode; children: ReactNode }) {
+export function Row({ title, subtitle, action, children }: { title: ReactNode; subtitle?: ReactNode; action?: ReactNode; children: ReactNode }) {
   const scroller = useRef<HTMLDivElement>(null);
   const scroll = (dir: number) => scroller.current?.scrollBy({ left: dir * scroller.current.clientWidth * 0.85, behavior: "smooth" });
   return (
     <section className="group/row mt-10">
       <div className="mb-3 flex items-baseline justify-between gap-4 px-4 sm:px-10">
-        <h2 className="text-lg font-semibold text-slate-800">{title}</h2>
+        <div className="min-w-0">
+          <h2 className="flex items-center gap-2 text-lg font-semibold text-slate-800">{title}</h2>
+          {subtitle && <p className="mt-0.5 max-w-2xl text-sm text-slate-400">{subtitle}</p>}
+        </div>
         {action}
       </div>
       <div className="relative">
@@ -64,7 +92,7 @@ export function TopicCard({ topic, menu, wide }: { topic: Topic; menu?: ReactNod
           </span>
           <div className="absolute inset-x-0 bottom-0 p-3">
             <p className="text-[11px] uppercase tracking-wider text-white/50">
-              {LANGUAGES[topic.language].flag} {topic.kind === "dialogue" ? "Hội thoại" : "Từ vựng"} · {topic.itemCount} câu
+              {topic.kind === "dialogue" ? "Hội thoại" : "Từ vựng"} · {topic.itemCount} câu
             </p>
             <h3 className="line-clamp-2 pr-12 font-semibold leading-snug text-white">{topic.title}</h3>
             {/* details slide in on hover */}
@@ -83,9 +111,14 @@ export function TopicCard({ topic, menu, wide }: { topic: Topic; menu?: ReactNod
               <div className={`h-1 ${pct >= 1 ? "bg-emerald-500" : "bg-indigo-500"}`} style={{ width: `${pct * 100}%` }} />
             </div>
           )}
-          {topic.visibility === "public" && topic.isOwner && (
-            <span className="absolute left-2 top-2 rounded bg-black/50 px-1.5 py-0.5 text-[10px] text-white/70 backdrop-blur">🌐 Công khai</span>
-          )}
+          <div className="absolute left-2 top-2 flex items-center gap-1.5">
+            <LanguageBadge language={topic.language} />
+            {topic.visibility === "public" && topic.isOwner && (
+              <span className="rounded bg-black/50 px-1.5 py-0.5 text-[10px] text-white/70 backdrop-blur" title="Công khai">
+                🌐
+              </span>
+            )}
+          </div>
         </Cover>
       </Link>
       {menu && <div className="absolute right-2 top-2 z-10 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100">{menu}</div>}

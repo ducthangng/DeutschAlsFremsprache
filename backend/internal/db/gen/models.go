@@ -39,6 +39,21 @@ type Assessment struct {
 	SimulationID pgtype.Int8
 }
 
+type CostEvent struct {
+	Kind         string
+	ID           int64
+	UserID       int64
+	TopicID      pgtype.Int8
+	SimulationID pgtype.Int8
+	Provider     string
+	Detail       string
+	AudioMs      int32
+	Tokens       int32
+	Chars        int32
+	CostUsd      float64
+	CreatedAt    time.Time
+}
+
 type DictationAttempt struct {
 	ID        int64
 	UserID    int64

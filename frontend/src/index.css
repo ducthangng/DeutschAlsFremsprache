@@ -94,3 +94,20 @@ body {
   to { opacity: 1; transform: none; }
 }
 .animate-dialog-in { animation: dialog-in 160ms ease-out; }
+
+/* Congratulations confetti */
+@keyframes confetti-fall {
+  0% { transform: translate3d(0, -20px, 0) rotate(0deg); opacity: 1; }
+  100% { transform: translate3d(var(--drift, 0px), 520px, 0) rotate(var(--spin, 540deg)); opacity: 0; }
+}
+.confetti-piece { animation: confetti-fall var(--dur, 2.6s) cubic-bezier(.2,.6,.4,1) var(--delay, 0s) forwards; }
+@keyframes pop-in {
+  0% { transform: scale(.6); opacity: 0; }
+  70% { transform: scale(1.08); opacity: 1; }
+  100% { transform: scale(1); }
+}
+.animate-pop-in { animation: pop-in 500ms ease-out both; }
+@media (prefers-reduced-motion: reduce) {
+  .confetti-piece { display: none; }
+  .animate-pop-in { animation: none; }
+}

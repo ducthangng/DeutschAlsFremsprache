@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import ImagePicker from "../components/ImagePicker";
 import Spinner from "../components/Spinner";
-import { api, LANGUAGES, type GenerateResult, type Language, type SpeechType, type TopicInput, type TopicKind, type Visibility } from "../lib/api";
+import { api, LANGUAGES, type GenerateResult, type Language, type SentenceLength, type SpeechType, type TopicInput, type TopicKind, type Visibility } from "../lib/api";
 import { formatUsd } from "../lib/format";
 import { useDialog } from "../components/Dialog";
 
@@ -38,6 +38,11 @@ const SPEECH_TYPES: { value: SpeechType; label: string; hint: string }[] = [
   { value: "vocabulary", label: "📚 Từ vựng", hint: "Từ và câu ví dụ ngắn" },
 ];
 const LEVELS = ["A1", "A2", "B1", "B2", "C1", "C2"];
+const SENTENCE_LENGTHS: { value: SentenceLength; label: string; hint: string }[] = [
+  { value: "short", label: "Ngắn", hint: "3–7 từ" },
+  { value: "medium", label: "Vừa", hint: "8–14 từ" },
+  { value: "long", label: "Dài", hint: "15–25 từ" },
+];
 
 // Mirrors the backend parser so the preview matches what will be saved.
 function preview(kind: TopicKind, content: string) {
@@ -94,6 +99,7 @@ export default function TopicForm() {
   const [speechType, setSpeechType] = useState<SpeechType>("dialogue");
   const [level, setLevel] = useState("A2");
   const [lineCount, setLineCount] = useState(10);
+  const [sentenceLength, setSentenceLength] = useState<SentenceLength>("medium");
   const [generating, setGenerating] = useState(false);
   const [genError, setGenError] = useState("");
   const [generation, setGeneration] = useState<GenerateResult | null>(null);
@@ -140,6 +146,7 @@ export default function TopicForm() {
         vocabulary: splitVocabulary(vocabText),
         level,
         lines: lineCount,
+        length: sentenceLength,
       });
       setGeneration(res);
       if (res.generationId) setGenerationIds((ids) => [...ids, res.generationId]);
@@ -240,6 +247,24 @@ export default function TopicForm() {
             <span className="mb-1 block text-sm font-medium">Số câu</span>
             <input className={input} type="number" min={4} max={30} value={lineCount} onChange={(e) => setLineCount(Math.min(30, Math.max(4, Number(e.target.value) || 4)))} />
           </label>
+        </div>
+        <div>
+          <span className="mb-1 block text-sm font-medium">Độ dài câu</span>
+          <div className="grid grid-cols-3 gap-2">
+            {SENTENCE_LENGTHS.map((l) => (
+              <button
+                key={l.value}
+                type="button"
+                onClick={() => setSentenceLength(l.value)}
+                className={`rounded-xl px-3 py-2 text-left text-sm ring-1 transition ${
+                  sentenceLength === l.value ? "bg-surface ring-indigo-300" : "ring-slate-200 hover:bg-surface"
+                }`}
+              >
+                <span className="block font-medium">{l.label}</span>
+                <span className="text-xs text-slate-400">{l.hint}</span>
+              </button>
+            ))}
+          </div>
         </div>
         <button
           type="button"

@@ -11,7 +11,9 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"deutschfremsprache/internal/auth"
 	"deutschfremsprache/internal/speech"
@@ -57,15 +59,26 @@ func (s *Server) assessItem(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	// Optional "focus": grade just one word/phrase of the sentence (re-practicing
+	// mispronounced words). Such takes are not saved as recordings.
+	ref := item.Text
+	focus := strings.TrimSpace(r.FormValue("focus"))
+	if focus != "" {
+		if utf8.RuneCountInString(focus) > 80 || !strings.Contains(strings.ToLower(item.Text), strings.ToLower(focus)) {
+			writeError(w, http.StatusBadRequest, "từ cần luyện không có trong câu")
+			return
+		}
+		ref = focus
+	}
 
 	usage := gradingUsage{Provider: "azure", AudioMs: wavDurationMs(wav)}
 	var a *speech.Assessment
 	start := time.Now()
 	if !s.speech.Enabled() {
 		usage.Provider = "mock"
-		a = speech.MockAssess(item.Text, len(wav))
+		a = speech.MockAssess(ref, len(wav))
 	} else {
-		a, err = s.speech.Assess(ctx, t.Language, item.Text, wav)
+		a, err = s.speech.Assess(ctx, t.Language, ref, wav)
 		if err != nil {
 			log.Printf("assess: %v", err)
 			writeError(w, http.StatusBadGateway, "không chấm được phát âm, vui lòng thử lại")
@@ -78,7 +91,7 @@ func (s *Server) assessItem(w http.ResponseWriter, r *http.Request) {
 	resp := assessResponse{
 		Threshold:  s.cfg.PassThreshold,
 		Scores:     a.Scores,
-		Tokens:     speech.Align(item.Text, a.Words, s.cfg.WordThreshold),
+		Tokens:     speech.Align(ref, a.Words, s.cfg.WordThreshold),
 		Recognized: a.Recognized,
 		Mock:       usage.Provider == "mock",
 		Usage:      usage,
@@ -90,7 +103,7 @@ func (s *Server) assessItem(w http.ResponseWriter, r *http.Request) {
 		log.Printf("log assessment: %v", err) // cost tracking must not block the learner
 	}
 
-	if resp.Passed {
+	if resp.Passed && focus == "" {
 		rec, err := s.saveRecording(r, uid, item.ID, wav, &resp)
 		if err != nil {
 			writeStoreError(w, err)
