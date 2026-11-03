@@ -38,8 +38,8 @@ func TestAdminCosts(t *testing.T) {
 	}
 
 	var ov struct {
-		Totals []store.CostKindTotal
-		Users  []store.UserCost
+		Totals    []store.CostKindTotal
+		Users     []store.UserCost
 		Topics    []store.TopicSpend
 		Providers []provider
 	}

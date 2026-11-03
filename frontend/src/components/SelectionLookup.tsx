@@ -102,8 +102,9 @@ export default function SelectionLookup({ language, rate, voiceURI, topicId }: P
     setBusy(true);
     try {
       // The line's picture (if any) becomes the flashcard's picture.
-      await api.createVocab({ language, term: sel!.text, meaning: m, example: sel!.sentence, topicId, imageKey: sel!.imageKey });
-      setStatus("✓ Đã lưu vào Vocabulary Pocket");
+      const v = await api.createVocab({ language, term: sel!.text, meaning: m, example: sel!.sentence, topicId, imageKey: sel!.imageKey });
+      // German terms come back in card form: "die Zeitung", "liest (du)".
+      setStatus(`✓ Đã lưu "${v.term}" vào Vocabulary Pocket`);
     } catch (e) {
       setStatus(e instanceof ApiError && e.status === 409 ? "Từ này đã có trong Pocket" : e instanceof Error ? e.message : "Không lưu được");
     } finally {

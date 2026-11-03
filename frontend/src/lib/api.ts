@@ -448,7 +448,7 @@ export interface ReviewLine {
 }
 
 export type CostPeriod = "today" | "7d" | "month" | "all";
-export type CostKind = "assess" | "script" | "tts" | "image" | "simulation" | "grammar" | "translate";
+export type CostKind = "assess" | "script" | "tts" | "image" | "simulation" | "grammar" | "vocab" | "translate";
 export type CostScope = "topic" | "simulation" | "none";
 
 export interface CostSplit {

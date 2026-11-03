@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"log"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"unicode/utf8"
 
 	"deutschfremsprache/internal/auth"
+	"deutschfremsprache/internal/openai"
 	"deutschfremsprache/internal/srs"
 	"deutschfremsprache/internal/store"
 	"deutschfremsprache/internal/topic"
@@ -37,6 +39,33 @@ func (in *vocabInput) validate() string {
 		return "ảnh không hợp lệ"
 	}
 	return ""
+}
+
+// cardForms rewrites German terms before they are saved: nouns get their
+// article (die Zeitung), finite verbs their subject (liest (du)). Without
+// OpenAI, or if the call fails, the terms are kept as typed.
+func (s *Server) cardForms(ctx context.Context, uid int64, language string, items []*vocabInput) {
+	if language != "de-DE" || !s.openai.Enabled() || len(items) == 0 {
+		return
+	}
+	terms := make([]openai.GermanTerm, len(items))
+	for i, it := range items {
+		terms[i] = openai.GermanTerm{Term: it.Term, Context: it.Example}
+	}
+	forms, u, err := s.openai.GermanCardForms(ctx, terms)
+	if u != nil && u.InputTokens+u.OutputTokens > 0 {
+		if _, lerr := s.store.LogAIUsage(ctx, store.AIUsage{UserID: uid, Kind: "vocab", Model: u.Model,
+			InputTokens: u.InputTokens, OutputTokens: u.OutputTokens, CostUSD: u.CostUSD}); lerr != nil {
+			log.Printf("log vocab usage: %v", lerr)
+		}
+	}
+	if err != nil {
+		log.Printf("german card forms: %v", err)
+		return
+	}
+	for i := range items {
+		items[i].Term = forms[i]
+	}
 }
 
 func (s *Server) decorateVocab(vs ...*store.VocabEntry) {
@@ -74,6 +103,7 @@ func (s *Server) createVocab(w http.ResponseWriter, r *http.Request) {
 			in.TopicID = nil // not readable by the user: keep the card, drop the link
 		}
 	}
+	s.cardForms(ctx, uid, in.Language, []*vocabInput{&in})
 	v, err := s.store.CreateVocab(ctx, uid, &store.VocabEntry{Language: in.Language, Term: in.Term, Meaning: in.Meaning,
 		Example: in.Example, TopicID: in.TopicID, ImageKey: in.ImageKey})
 	if errors.Is(err, store.ErrConflict) {
@@ -360,6 +390,11 @@ func (s *Server) bulkAddVocab(w http.ResponseWriter, r *http.Request) {
 			toTranslate = append(toTranslate, in.Items[i].Term)
 		}
 	}
+	items := make([]*vocabInput, len(in.Items))
+	for i := range in.Items {
+		items[i] = &in.Items[i]
+	}
+	s.cardForms(ctx, uid, in.Language, items)
 	if len(toTranslate) > 0 {
 		if tr, err := s.translateCached(ctx, uid, in.Language, toTranslate); err == nil {
 			j := 0

@@ -22,7 +22,7 @@ SELECT (CASE WHEN e.topic_id IS NOT NULL THEN 'topic'
        COUNT(*)::int AS requests,
        COALESCE(SUM(e.cost_usd), 0)::float8 AS cost_usd,
        COALESCE(SUM(e.cost_usd) FILTER (WHERE e.kind = 'assess'), 0)::float8 AS grading_usd,
-       COALESCE(SUM(e.cost_usd) FILTER (WHERE e.kind IN ('script', 'tts', 'image', 'simulation', 'grammar')), 0)::float8 AS ai_usd,
+       COALESCE(SUM(e.cost_usd) FILTER (WHERE e.kind IN ('script', 'tts', 'image', 'simulation', 'grammar', 'vocab')), 0)::float8 AS ai_usd,
        COALESCE(SUM(e.cost_usd) FILTER (WHERE e.kind = 'translate'), 0)::float8 AS translation_usd
 FROM cost_events e
 LEFT JOIN topics t ON t.id = e.topic_id
@@ -88,7 +88,7 @@ SELECT COALESCE(e.user_id, 0)::bigint AS user_id,
        COUNT(*)::int AS requests,
        COALESCE(SUM(e.cost_usd), 0)::float8 AS cost_usd,
        COALESCE(SUM(e.cost_usd) FILTER (WHERE e.kind = 'assess'), 0)::float8 AS grading_usd,
-       COALESCE(SUM(e.cost_usd) FILTER (WHERE e.kind IN ('script', 'tts', 'image', 'simulation', 'grammar')), 0)::float8 AS ai_usd,
+       COALESCE(SUM(e.cost_usd) FILTER (WHERE e.kind IN ('script', 'tts', 'image', 'simulation', 'grammar', 'vocab')), 0)::float8 AS ai_usd,
        COALESCE(SUM(e.cost_usd) FILTER (WHERE e.kind = 'translate'), 0)::float8 AS translation_usd,
        MAX(e.created_at)::timestamptz AS last_at
 FROM cost_events e

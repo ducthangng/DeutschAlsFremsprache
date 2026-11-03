@@ -119,6 +119,9 @@ func (s *Server) providers() []provider {
 			Price: fmt.Sprintf("$%g / $%g mỗi 1M token vào / ra", c.OpenAIChatUSDPerMIn, c.OpenAIChatUSDPerMOut), Active: oa, Fallback: "Tắt (cần OPENAI_API_KEY)"},
 		provider{Feature: "Bài tập ngữ pháp", Kind: "grammar", Vendor: vendorOA, API: "Chat Completions: model người dùng chọn (mặc định " + openai.GrammarModels[0].ID + ")",
 			Price: "Theo từng model", Active: oa, Fallback: "Tắt (cần OPENAI_API_KEY)"},
+		provider{Feature: "Chuẩn hoá từ tiếng Đức khi lưu vào Pocket (mạo từ, chủ ngữ)", Kind: "vocab", Vendor: vendorOA,
+			API: "Chat Completions: " + c.OpenAIChatModel, Price: fmt.Sprintf("$%g / $%g mỗi 1M token vào / ra", c.OpenAIChatUSDPerMIn, c.OpenAIChatUSDPerMOut),
+			Active: oa, Fallback: "Lưu nguyên từ như đã chọn"},
 		provider{Feature: "Ảnh AI", Kind: "image", Vendor: vendorOA, API: "Images: " + c.OpenAIImageModel,
 			Price: fmt.Sprintf("$%g / ảnh", c.OpenAIImageUSD), Active: oa, Fallback: "Tắt (cần OPENAI_API_KEY)"},
 	)
@@ -132,7 +135,7 @@ func ttsPrice(c config.Config) string {
 	return fmt.Sprintf("$%g / phút audio", c.OpenAITTSUSDPerMinute)
 }
 
-var costKinds = []string{"assess", "script", "tts", "image", "simulation", "translate"}
+var costKinds = []string{"assess", "script", "tts", "image", "simulation", "grammar", "vocab", "translate"}
 
 const costPageSize = 50
 
