@@ -3,6 +3,8 @@ package api
 import (
 	"bytes"
 	"mime/multipart"
+	"slices"
+	"strings"
 	"testing"
 
 	"deutschfremsprache/internal/store"
@@ -38,10 +40,16 @@ func TestAdminCosts(t *testing.T) {
 	var ov struct {
 		Totals []store.CostKindTotal
 		Users  []store.UserCost
-		Topics []store.TopicSpend
+		Topics    []store.TopicSpend
+		Providers []provider
 	}
 	if code := admin.json("GET", "/api/usage/costs?period=all", nil, &ov); code != 200 {
 		t.Fatalf("costs: %d", code)
+	}
+	// The test server has neither Azure nor OpenAI keys: translations fall back to MyMemory.
+	translator := slices.IndexFunc(ov.Providers, func(p provider) bool { return p.Kind == "translate" })
+	if len(ov.Providers) < 8 || translator < 0 || !strings.HasPrefix(ov.Providers[translator].Vendor, "MyMemory") || ov.Providers[0].Active || ov.Providers[0].Fallback == "" {
+		t.Fatalf("providers: %+v", ov.Providers)
 	}
 	if len(ov.Totals) != 1 || ov.Totals[0].Kind != "assess" || ov.Totals[0].Requests != 1 {
 		t.Fatalf("totals: %+v", ov.Totals)

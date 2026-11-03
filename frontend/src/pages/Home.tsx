@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { LanguageBadge, PlaylistCard, Row, TopicCard, topicProgress } from "../components/Cards";
+import { LanguageBadge, LevelBadge, PlaylistCard, Row, TopicCard, topicProgress } from "../components/Cards";
 import Cover from "../components/Cover";
 import { useDialog } from "../components/Dialog";
 import { AddToPlaylistDialog, PlaylistFormDialog } from "../components/PlaylistDialogs";
@@ -224,7 +224,10 @@ function Hero({ topic, continuing, onAddToPlaylist }: { topic: Topic; continuing
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-white/50">
               {continuing ? "Tiếp tục luyện" : "Gợi ý cho bạn"} · {topic.kind === "dialogue" ? "Hội thoại" : "Từ vựng"}
             </p>
-            <LanguageBadge language={topic.language} className="mt-3" />
+            <div className="mt-3 flex items-center gap-1.5">
+              <LanguageBadge language={topic.language} long />
+              <LevelBadge level={topic.level} />
+            </div>
             <h1 className="mt-2 text-4xl font-bold leading-tight text-white sm:text-5xl">{topic.title}</h1>
             {topic.description && <p className="mt-3 line-clamp-2 text-white/70">{topic.description}</p>}
             {pct > 0 && (

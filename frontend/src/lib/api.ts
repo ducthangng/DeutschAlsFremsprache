@@ -39,6 +39,8 @@ export interface Topic {
   coverKey: string;
   /** Signed URL of the cover picture ("" if none). */
   coverUrl: string;
+  /** CEFR level A1..C2, "" if the owner has not set one. */
+  level: string;
   createdAt: string;
   updatedAt: string;
   itemCount: number;
@@ -108,6 +110,8 @@ export interface TopicInput {
   visibility: Visibility;
   content: string;
   coverKey?: string;
+  /** CEFR level A1..C2, or "". */
+  level?: string;
   /** Picture key per parsed line ("" = none), aligned with the lines of `content`. */
   images?: string[];
   /** From "Tạo bằng AI": links the generation costs to the new topic. */
@@ -460,6 +464,19 @@ export interface CostOverview {
   totals: { kind: CostKind; requests: number; costUsd: number; audioMs: number; tokens: number; chars: number }[];
   users: (CostSplit & { userId: number; name: string; email: string; avatarUrl: string; lastAt: string })[];
   topics: (CostSplit & { scope: CostScope; topicId: number; title: string; language: Language | ""; ownerName: string; users: number })[];
+  /** Which vendor and API serves each feature, as configured on the server. */
+  providers: Provider[];
+}
+
+export interface Provider {
+  feature: string;
+  kind: CostKind;
+  vendor: string;
+  api: string;
+  price: string;
+  active: boolean;
+  /** What happens instead while the service is not configured. */
+  fallback?: string;
 }
 
 export interface CostEvent {

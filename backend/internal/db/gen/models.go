@@ -173,6 +173,7 @@ type Topic struct {
 	UpdatedAt   time.Time
 	Visibility  string
 	CoverKey    string
+	Level       string
 }
 
 type TopicCompletion struct {

@@ -25,8 +25,8 @@ func (q *Queries) AddTopicCompletion(ctx context.Context, arg AddTopicCompletion
 }
 
 const createTopic = `-- name: CreateTopic :one
-INSERT INTO topics (user_id, title, description, language, kind, visibility, cover_key)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
+INSERT INTO topics (user_id, title, description, language, kind, visibility, cover_key, level)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 RETURNING id
 `
 
@@ -38,6 +38,7 @@ type CreateTopicParams struct {
 	Kind        string
 	Visibility  string
 	CoverKey    string
+	Level       string
 }
 
 func (q *Queries) CreateTopic(ctx context.Context, arg CreateTopicParams) (int64, error) {
@@ -49,6 +50,7 @@ func (q *Queries) CreateTopic(ctx context.Context, arg CreateTopicParams) (int64
 		arg.Kind,
 		arg.Visibility,
 		arg.CoverKey,
+		arg.Level,
 	)
 	var id int64
 	err := row.Scan(&id)
@@ -73,7 +75,7 @@ func (q *Queries) DeleteTopic(ctx context.Context, arg DeleteTopicParams) (int64
 }
 
 const getTopicForViewer = `-- name: GetTopicForViewer :one
-SELECT t.id, t.user_id, t.title, t.description, t.language, t.kind, t.created_at, t.updated_at, t.visibility, t.cover_key, u.name AS owner_name,
+SELECT t.id, t.user_id, t.title, t.description, t.language, t.kind, t.created_at, t.updated_at, t.visibility, t.cover_key, t.level, u.name AS owner_name,
        (SELECT COUNT(*) FROM items i WHERE i.topic_id = t.id)::int AS item_count,
        (SELECT COUNT(DISTINCT r.item_id) FROM recordings r JOIN items i ON i.id = r.item_id
          WHERE i.topic_id = t.id AND r.user_id = $1)::int AS passed_count,
@@ -106,6 +108,7 @@ type GetTopicForViewerRow struct {
 	UpdatedAt            time.Time
 	Visibility           string
 	CoverKey             string
+	Level                string
 	OwnerName            string
 	ItemCount            int32
 	PassedCount          int32
@@ -130,6 +133,7 @@ func (q *Queries) GetTopicForViewer(ctx context.Context, arg GetTopicForViewerPa
 		&i.UpdatedAt,
 		&i.Visibility,
 		&i.CoverKey,
+		&i.Level,
 		&i.OwnerName,
 		&i.ItemCount,
 		&i.PassedCount,
@@ -142,7 +146,7 @@ func (q *Queries) GetTopicForViewer(ctx context.Context, arg GetTopicForViewerPa
 }
 
 const listPublicTopics = `-- name: ListPublicTopics :many
-SELECT t.id, t.user_id, t.title, t.description, t.language, t.kind, t.created_at, t.updated_at, t.visibility, t.cover_key, u.name AS owner_name,
+SELECT t.id, t.user_id, t.title, t.description, t.language, t.kind, t.created_at, t.updated_at, t.visibility, t.cover_key, t.level, u.name AS owner_name,
        (SELECT COUNT(*) FROM items i WHERE i.topic_id = t.id)::int AS item_count,
        (SELECT COUNT(DISTINCT r.item_id) FROM recordings r JOIN items i ON i.id = r.item_id
          WHERE i.topic_id = t.id AND r.user_id = $1)::int AS passed_count,
@@ -172,6 +176,7 @@ type ListPublicTopicsRow struct {
 	UpdatedAt            time.Time
 	Visibility           string
 	CoverKey             string
+	Level                string
 	OwnerName            string
 	ItemCount            int32
 	PassedCount          int32
@@ -201,6 +206,7 @@ func (q *Queries) ListPublicTopics(ctx context.Context, viewerID int64) ([]ListP
 			&i.UpdatedAt,
 			&i.Visibility,
 			&i.CoverKey,
+			&i.Level,
 			&i.OwnerName,
 			&i.ItemCount,
 			&i.PassedCount,
@@ -221,7 +227,7 @@ func (q *Queries) ListPublicTopics(ctx context.Context, viewerID int64) ([]ListP
 
 const listTopicsByUser = `-- name: ListTopicsByUser :many
 
-SELECT t.id, t.user_id, t.title, t.description, t.language, t.kind, t.created_at, t.updated_at, t.visibility, t.cover_key, u.name AS owner_name,
+SELECT t.id, t.user_id, t.title, t.description, t.language, t.kind, t.created_at, t.updated_at, t.visibility, t.cover_key, t.level, u.name AS owner_name,
        (SELECT COUNT(*) FROM items i WHERE i.topic_id = t.id)::int AS item_count,
        (SELECT COUNT(DISTINCT r.item_id) FROM recordings r JOIN items i ON i.id = r.item_id
          WHERE i.topic_id = t.id AND r.user_id = $1)::int AS passed_count,
@@ -250,6 +256,7 @@ type ListTopicsByUserRow struct {
 	UpdatedAt            time.Time
 	Visibility           string
 	CoverKey             string
+	Level                string
 	OwnerName            string
 	ItemCount            int32
 	PassedCount          int32
@@ -281,6 +288,7 @@ func (q *Queries) ListTopicsByUser(ctx context.Context, userID int64) ([]ListTop
 			&i.UpdatedAt,
 			&i.Visibility,
 			&i.CoverKey,
+			&i.Level,
 			&i.OwnerName,
 			&i.ItemCount,
 			&i.PassedCount,
@@ -381,8 +389,8 @@ const updateTopic = `-- name: UpdateTopic :execrows
 UPDATE topics
 SET title = $1, description = $2,
     language = $3, kind = $4,
-    visibility = $5, cover_key = $6, updated_at = now()
-WHERE id = $7 AND user_id = $8
+    visibility = $5, cover_key = $6, level = $7, updated_at = now()
+WHERE id = $8 AND user_id = $9
 `
 
 type UpdateTopicParams struct {
@@ -392,6 +400,7 @@ type UpdateTopicParams struct {
 	Kind        string
 	Visibility  string
 	CoverKey    string
+	Level       string
 	ID          int64
 	UserID      int64
 }
@@ -404,6 +413,7 @@ func (q *Queries) UpdateTopic(ctx context.Context, arg UpdateTopicParams) (int64
 		arg.Kind,
 		arg.Visibility,
 		arg.CoverKey,
+		arg.Level,
 		arg.ID,
 		arg.UserID,
 	)

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import SelectionLookup from "../components/SelectionLookup";
 import Spinner from "../components/Spinner";
@@ -334,26 +334,7 @@ function ChoiceList({
             <span className="mr-2 text-slate-400">{i + 1}.</span>
             {q.question}
           </p>
-          <div className="mt-2 grid gap-2 sm:grid-cols-2">
-            {q.options.map((o, j) => {
-              const picked = answers[i] === j;
-              const tone = !checked
-                ? picked
-                  ? "bg-indigo-50 ring-indigo-400 text-indigo-800"
-                  : "ring-slate-200 hover:ring-indigo-300 text-slate-700"
-                : j === q.answer
-                  ? "bg-emerald-50 ring-emerald-400 text-emerald-800"
-                  : picked
-                    ? "bg-red-50 ring-red-400 text-red-800"
-                    : "ring-slate-200 text-slate-400";
-              return (
-                <button key={j} disabled={checked} onClick={() => onAnswer(i, j)} className={`rounded-xl px-4 py-2 text-left ring-1 transition ${tone}`}>
-                  <span className="mr-2 text-xs opacity-60">{"ABCD"[j] ?? j + 1}</span>
-                  {o}
-                </button>
-              );
-            })}
-          </div>
+          <ChoiceOptions q={q} picked={answers[i]} checked={checked} onPick={(j) => onAnswer(i, j)} />
           {checked && (
             <Explanation ok={answers[i] === q.answer}>
               {answers[i] === undefined && "Chưa trả lời. "}
@@ -501,24 +482,55 @@ function Listening({
   );
 }
 
-function ChoiceOptions({ q, picked, checked, onPick }: { q: ListeningQuestion; picked?: number; checked: boolean; onPick: (j: number) => void }) {
+/**
+ * The 4 answer options. They are not <button>s so their words can be selected
+ * (double-click → SelectionLookup); a single click picks the option, a double
+ * click only looks the word up.
+ */
+function ChoiceOptions({ q, picked, checked, onPick }: { q: { options: string[]; answer: number }; picked?: number; checked: boolean; onPick: (j: number) => void }) {
+  const timer = useRef(0);
+  useEffect(() => () => clearTimeout(timer.current), []);
+  function click(e: MouseEvent, j: number) {
+    clearTimeout(timer.current);
+    if (checked || e.detail > 1) return; // second click of a double-click
+    // Wait to see whether this becomes a double-click or a drag-selection.
+    timer.current = window.setTimeout(() => {
+      if (!window.getSelection()?.toString()) onPick(j);
+    }, 250);
+  }
   return (
     <div className="mt-2 grid gap-2 sm:grid-cols-2">
       {q.options.map((o, j) => {
         const tone = !checked
           ? picked === j
             ? "bg-indigo-50 ring-indigo-400 text-indigo-800"
-            : "ring-slate-200 hover:ring-indigo-300 text-slate-700"
+            : "cursor-pointer ring-slate-200 hover:ring-indigo-300 text-slate-700"
           : j === q.answer
             ? "bg-emerald-50 ring-emerald-400 text-emerald-800"
             : picked === j
               ? "bg-red-50 ring-red-400 text-red-800"
               : "ring-slate-200 text-slate-400";
         return (
-          <button key={j} disabled={checked} onClick={() => onPick(j)} className={`rounded-xl px-4 py-2 text-left ring-1 transition ${tone}`}>
-            <span className="mr-2 text-xs opacity-60">{"ABCD"[j] ?? j + 1}</span>
-            {o}
-          </button>
+          <div
+            key={j}
+            role="radio"
+            aria-checked={picked === j}
+            aria-disabled={checked}
+            tabIndex={checked ? -1 : 0}
+            onClick={(e) => click(e, j)}
+            onKeyDown={(e) => {
+              if (!checked && (e.key === "Enter" || e.key === " ")) {
+                e.preventDefault();
+                onPick(j);
+              }
+            }}
+            className={`rounded-xl px-4 py-2 text-left ring-1 transition outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${tone}`}
+          >
+            <span className="mr-2 select-none text-xs opacity-60">{"ABCD"[j] ?? j + 1}</span>
+            <span data-lookup data-sentence={o} className="selection:bg-amber-200">
+              {o}
+            </span>
+          </div>
         );
       })}
     </div>

@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -20,6 +21,7 @@ type topicInput struct {
 	Visibility  string `json:"visibility"`
 	Content     string `json:"content"`
 	CoverKey    string `json:"coverKey"`
+	Level       string `json:"level"` // CEFR A1..C2 or ""
 	// Images[i] is the picture key of the i-th parsed line ("" for none).
 	Images []string `json:"images"`
 	// Only on create, when the content came from "Tạo bằng AI".
@@ -44,6 +46,8 @@ func (in *topicInput) validate() ([]topic.Line, string) {
 		return nil, "ngôn ngữ không được hỗ trợ"
 	case in.Kind != topic.KindVocabulary && in.Kind != topic.KindDialogue:
 		return nil, "loại topic không hợp lệ"
+	case in.Level != "" && !slices.Contains(levels, in.Level):
+		return nil, "trình độ không hợp lệ"
 	case len(in.Vocabulary) > 50:
 		return nil, "tối đa 50 từ vựng"
 	}
@@ -78,7 +82,7 @@ func (in *topicInput) validate() ([]topic.Line, string) {
 }
 
 func (in *topicInput) toTopic(userID int64) *store.Topic {
-	return &store.Topic{UserID: userID, Title: in.Title, Description: in.Description, Language: in.Language, Kind: in.Kind, Visibility: in.Visibility, CoverKey: in.CoverKey}
+	return &store.Topic{UserID: userID, Title: in.Title, Description: in.Description, Language: in.Language, Kind: in.Kind, Visibility: in.Visibility, CoverKey: in.CoverKey, Level: in.Level}
 }
 
 type itemView struct {

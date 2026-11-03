@@ -49,6 +49,7 @@ type Topic struct {
 	Visibility  string    `json:"visibility"` // private | public
 	CoverKey    string    `json:"coverKey"`
 	CoverURL    string    `json:"coverUrl"` // filled in by the API layer
+	Level       string    `json:"level"`    // CEFR A1..C2, "" if not set
 	CreatedAt   time.Time `json:"createdAt"`
 	UpdatedAt   time.Time `json:"updatedAt"`
 	ItemCount   int       `json:"itemCount"`
@@ -167,7 +168,7 @@ func (s *Store) UserByID(ctx context.Context, id int64) (*User, error) {
 // The three topic queries return identically shaped rows.
 func toTopic(r gen.GetTopicForViewerRow, viewerID int64) *Topic {
 	t := &Topic{ID: r.ID, UserID: r.UserID, Title: r.Title, Description: r.Description, Language: r.Language, Kind: r.Kind,
-		Visibility: r.Visibility, CoverKey: r.CoverKey, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, ItemCount: int(r.ItemCount),
+		Visibility: r.Visibility, CoverKey: r.CoverKey, Level: r.Level, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, ItemCount: int(r.ItemCount),
 		PassedCount: int(r.PassedCount), DictationPassedCount: int(r.DictationPassedCount), OwnerName: r.OwnerName,
 		IsOwner: r.UserID == viewerID, Completions: int(r.Completions), TotalCost: r.TotalCostUsd}
 	if r.LastPracticedAt.Unix() > 0 {
@@ -264,7 +265,7 @@ type NewTopicExtras struct {
 func (s *Store) CreateTopic(ctx context.Context, t *Topic, lines []topic.Line, extras NewTopicExtras) (*Topic, error) {
 	var out *Topic
 	err := s.inTx(ctx, func(q *gen.Queries) error {
-		id, err := q.CreateTopic(ctx, gen.CreateTopicParams{UserID: t.UserID, Title: t.Title, Description: t.Description, Language: t.Language, Kind: t.Kind, Visibility: t.Visibility, CoverKey: t.CoverKey})
+		id, err := q.CreateTopic(ctx, gen.CreateTopicParams{UserID: t.UserID, Title: t.Title, Description: t.Description, Language: t.Language, Kind: t.Kind, Visibility: t.Visibility, CoverKey: t.CoverKey, Level: t.Level})
 		if err != nil {
 			return err
 		}
@@ -305,7 +306,7 @@ func (s *Store) UpdateTopic(ctx context.Context, t *Topic, lines []topic.Line) (
 		files []string
 	)
 	err := s.inTx(ctx, func(q *gen.Queries) error {
-		n, err := q.UpdateTopic(ctx, gen.UpdateTopicParams{ID: t.ID, UserID: t.UserID, Title: t.Title, Description: t.Description, Language: t.Language, Kind: t.Kind, Visibility: t.Visibility, CoverKey: t.CoverKey})
+		n, err := q.UpdateTopic(ctx, gen.UpdateTopicParams{ID: t.ID, UserID: t.UserID, Title: t.Title, Description: t.Description, Language: t.Language, Kind: t.Kind, Visibility: t.Visibility, CoverKey: t.CoverKey, Level: t.Level})
 		if err != nil {
 			return err
 		}

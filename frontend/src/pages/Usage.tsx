@@ -196,6 +196,35 @@ export default function Usage() {
             </div>
           </section>
 
+          {/* which vendor / API serves each feature */}
+          <Section title="Dịch vụ đang dùng" hint="Cấu hình hiện tại của máy chủ: audio, dịch nghĩa và AI lấy từ đâu, và đơn giá dùng để ước tính chi phí.">
+            <table className="w-full text-sm">
+              <thead className="text-left text-xs text-slate-500">
+                <tr>
+                  <th className={th}>Tính năng</th>
+                  <th className={th}>Nhà cung cấp</th>
+                  <th className={th}>API / model</th>
+                  <th className={`${th} text-right`}>Đơn giá</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {overview.providers.map((p) => (
+                  <tr key={p.feature} className={p.active ? "" : "opacity-60"}>
+                    <td className="px-3 py-2">
+                      <span className="mr-1.5">{KINDS[p.kind]?.icon}</span>
+                      {p.feature}
+                    </td>
+                    <td className="px-3 py-2 font-medium text-slate-800">
+                      {p.active ? p.vendor : <span className="text-amber-600">Chưa cấu hình</span>}
+                    </td>
+                    <td className="px-3 py-2 text-slate-500">{p.active ? p.api : p.fallback}</td>
+                    <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-slate-500">{p.active ? p.price : "–"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </Section>
+
           {/* by user */}
           <Section title="Theo người dùng" hint="Bấm một dòng để xem các request của người đó.">
             <table className="w-full text-left text-sm">

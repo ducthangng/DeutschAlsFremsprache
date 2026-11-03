@@ -14,12 +14,31 @@ export function topicProgress(t: Topic) {
  * name in words too, because Windows shows flag emoji only as letters ("DE").
  * Raw hex on purpose: the theme remaps named shades.
  */
-const LANG_BADGE: Record<Language, { label: string; flag: string; cls: string }> = {
-  "de-DE": { label: "Đức", flag: "🇩🇪", cls: "bg-[#ffce00] text-black" },
-  "en-US": { label: "Anh", flag: "🇺🇸", cls: "bg-[#2f7cf6] text-white" },
+const LANG_BADGE: Record<Language, { label: string; long: string; flag: string; cls: string; bar: string }> = {
+  "de-DE": { label: "Đức", long: "Tiếng Đức", flag: "🇩🇪", cls: "bg-[#ffce00] text-black", bar: "bg-[#ffce00]" },
+  "en-US": { label: "Anh", long: "Tiếng Anh", flag: "🇺🇸", cls: "bg-[#2f7cf6] text-white", bar: "bg-[#2f7cf6]" },
 };
 
-export function LanguageBadge({ language, size = "md", className = "" }: { language: Language; size?: "sm" | "md"; className?: string }) {
+/* CEFR level chip: green for A, amber for B, rose for C. */
+const LEVEL_CLS: Record<string, string> = {
+  A: "bg-emerald-500 text-white",
+  B: "bg-amber-500 text-black",
+  C: "bg-rose-500 text-white",
+};
+
+export function LevelBadge({ level, size = "md", className = "" }: { level: string; size?: "sm" | "md"; className?: string }) {
+  if (!level) return null;
+  return (
+    <span
+      title={`Trình độ ${level}`}
+      className={`inline-flex shrink-0 items-center rounded-md font-bold shadow-sm ${size === "sm" ? "px-1.5 py-px text-[10px]" : "px-2 py-0.5 text-[11px]"} ${LEVEL_CLS[level[0]] ?? "bg-slate-500 text-white"} ${className}`}
+    >
+      {level}
+    </span>
+  );
+}
+
+export function LanguageBadge({ language, size = "md", long, className = "" }: { language: Language; size?: "sm" | "md"; long?: boolean; className?: string }) {
   const b = LANG_BADGE[language];
   return (
     <span
@@ -29,7 +48,7 @@ export function LanguageBadge({ language, size = "md", className = "" }: { langu
       } ${className}`}
     >
       <span className="text-[1.1em] leading-none">{b.flag}</span>
-      {b.label}
+      {long ? b.long : b.label}
     </span>
   );
 }
@@ -111,8 +130,11 @@ export function TopicCard({ topic, menu, wide }: { topic: Topic; menu?: ReactNod
               <div className={`h-1 ${pct >= 1 ? "bg-emerald-500" : "bg-indigo-500"}`} style={{ width: `${pct * 100}%` }} />
             </div>
           )}
-          <div className="absolute left-2 top-2 flex items-center gap-1.5">
-            <LanguageBadge language={topic.language} />
+          {/* language stripe: German gold, English blue, visible at a glance */}
+          <div className={`absolute inset-x-0 top-0 h-1 ${LANG_BADGE[topic.language].bar}`} />
+          <div className="absolute left-2 top-2.5 flex items-center gap-1.5">
+            <LanguageBadge language={topic.language} long />
+            <LevelBadge level={topic.level} />
             {topic.visibility === "public" && topic.isOwner && (
               <span className="rounded bg-black/50 px-1.5 py-0.5 text-[10px] text-white/70 backdrop-blur" title="Công khai">
                 🌐

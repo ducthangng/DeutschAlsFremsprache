@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { LanguageBadge, topicProgress } from "../components/Cards";
+import { LanguageBadge, LevelBadge, topicProgress } from "../components/Cards";
 import Cover from "../components/Cover";
 import { Modal, useDialog } from "../components/Dialog";
 import { AvatarStack } from "../components/Avatar";
@@ -133,6 +133,7 @@ export default function PlaylistDetail() {
                 <div className="min-w-0 flex-1">
                   <h3 className="flex items-center gap-2 font-semibold text-slate-900">
                     <LanguageBadge language={t.language} size="sm" />
+                    <LevelBadge level={t.level} size="sm" />
                     <span className="truncate">{t.title}</span>
                   </h3>
                   <p className="truncate text-sm text-slate-400">

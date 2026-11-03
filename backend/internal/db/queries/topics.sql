@@ -57,15 +57,15 @@ FROM topics t JOIN users u ON u.id = t.user_id
 WHERE t.id = sqlc.arg(id) AND (t.user_id = sqlc.arg(viewer_id) OR t.visibility = 'public');
 
 -- name: CreateTopic :one
-INSERT INTO topics (user_id, title, description, language, kind, visibility, cover_key)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
+INSERT INTO topics (user_id, title, description, language, kind, visibility, cover_key, level)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 RETURNING id;
 
 -- name: UpdateTopic :execrows
 UPDATE topics
 SET title = sqlc.arg(title), description = sqlc.arg(description),
     language = sqlc.arg(language), kind = sqlc.arg(kind),
-    visibility = sqlc.arg(visibility), cover_key = sqlc.arg(cover_key), updated_at = now()
+    visibility = sqlc.arg(visibility), cover_key = sqlc.arg(cover_key), level = sqlc.arg(level), updated_at = now()
 WHERE id = sqlc.arg(id) AND user_id = sqlc.arg(user_id);
 
 -- name: SetTopicVisibility :execrows

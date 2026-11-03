@@ -87,7 +87,7 @@ export default function TopicForm() {
   const editing = id !== undefined;
   const navigate = useNavigate();
   const dialog = useDialog();
-  const [form, setForm] = useState<TopicInput>({ title: "", description: "", language: "de-DE", kind: "dialogue", visibility: "private", content: "" });
+  const [form, setForm] = useState<TopicInput>({ title: "", description: "", language: "de-DE", kind: "dialogue", visibility: "private", content: "", level: "" });
   const [loading, setLoading] = useState(editing);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -118,7 +118,7 @@ export default function TopicForm() {
     api
       .getTopic(Number(id))
       .then((t) => {
-        setForm({ title: t.title, description: t.description, language: t.language, kind: t.kind, visibility: t.visibility, content: t.content });
+        setForm({ title: t.title, description: t.description, language: t.language, kind: t.kind, visibility: t.visibility, content: t.content, level: t.level });
         setCover({ key: t.coverKey, url: t.coverUrl });
         setLineImages(new Map(t.items.filter((it) => it.imageKey).map((it) => [lineKey(it), { key: it.imageKey, url: it.imageUrl }])));
       })
@@ -152,7 +152,7 @@ export default function TopicForm() {
       if (res.generationId) setGenerationIds((ids) => [...ids, res.generationId]);
       setSpent((s) => s + res.usage.costUsd);
       setPocketPicks(new Set()); // the learner ticks the words they want; nothing is pre-selected
-      setForm((f) => ({ ...f, title: res.title, description: res.description, kind: res.kind, content: res.content }));
+      setForm((f) => ({ ...f, title: res.title, description: res.description, kind: res.kind, content: res.content, level }));
     } catch (e) {
       setGenError(e instanceof Error ? e.message : "Không tạo được nội dung");
     } finally {
@@ -350,6 +350,15 @@ export default function TopicForm() {
                 </button>
               </div>
             </div>
+            <label className="block">
+              <span className="mb-1 block text-sm font-medium">Trình độ</span>
+              <select className={input} value={form.level ?? ""} onChange={(e) => set("level", e.target.value)}>
+                <option value="">Chưa chọn</option>
+                {LEVELS.map((l) => (
+                  <option key={l}>{l}</option>
+                ))}
+              </select>
+            </label>
             <div>
               <span className="mb-1 block text-sm font-medium">Trạng thái</span>
               <div className="flex gap-1 rounded-xl bg-slate-100 p-1">

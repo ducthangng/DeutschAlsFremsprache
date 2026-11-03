@@ -1,12 +1,16 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"deutschfremsprache/internal/auth"
+	"deutschfremsprache/internal/config"
+	"deutschfremsprache/internal/openai"
 	"deutschfremsprache/internal/store"
 )
 
@@ -65,7 +69,67 @@ func (s *Server) costOverview(w http.ResponseWriter, r *http.Request) {
 		writeStoreError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"since": since, "totals": totals, "users": users, "topics": topics})
+	writeJSON(w, http.StatusOK, map[string]any{"since": since, "totals": totals, "users": users, "topics": topics, "providers": s.providers()})
+}
+
+// provider is one external service the app calls, as configured right now.
+type provider struct {
+	Feature string `json:"feature"` // what it is used for (Vietnamese)
+	Kind    string `json:"kind"`    // cost kind it is billed under
+	Vendor  string `json:"vendor"`  // e.g. "OpenAI", "Microsoft Azure"
+	API     string `json:"api"`     // API / model / voice
+	Price   string `json:"price"`   // configured unit price used for cost estimates
+	Active  bool   `json:"active"`  // false: not configured
+	// Fallback is what happens instead while the service is not configured.
+	Fallback string `json:"fallback,omitempty"`
+}
+
+// providers lists which vendor and API serves each feature, so the admin can
+// see where the audio, translations and AI text come from.
+func (s *Server) providers() []provider {
+	c, oa, az := s.cfg, s.openai.Enabled(), s.speech.Enabled()
+	vendorOA := "OpenAI"
+	if c.OpenAIBaseURL != "" && !strings.Contains(c.OpenAIBaseURL, "api.openai.com") {
+		vendorOA = "OpenAI-compatible (" + c.OpenAIBaseURL + ")"
+	}
+	azure := func(api string) string { return api + " · region " + c.AzureRegion }
+	ps := []provider{
+		{Feature: "Chấm phát âm", Kind: "assess", Vendor: "Microsoft Azure", API: azure("Speech: Pronunciation Assessment"),
+			Price: fmt.Sprintf("$%g / giờ audio", c.AssessUSDPerHour), Active: az, Fallback: "Chế độ giả lập: điểm ngẫu nhiên, không gọi Azure"},
+		{Feature: "Giọng đọc mẫu của topic", Kind: "tts", Vendor: vendorOA, API: "Text-to-speech: " + c.OpenAITTSModel,
+			Price: ttsPrice(c), Active: oa, Fallback: "Giọng đọc có sẵn của trình duyệt"},
+		{Feature: "Bài nghe ngữ pháp", Kind: "grammar", Vendor: "Microsoft Azure", API: azure("Speech: Neural TTS (de-DE-KatjaNeural, ConradNeural…)"),
+			Price: fmt.Sprintf("$%g / 1M ký tự", c.AzureTTSUSDPerMChars), Active: az, Fallback: "Giọng đọc có sẵn của trình duyệt"},
+		{Feature: "Nhận dạng giọng nói (mô phỏng)", Kind: "simulation", Vendor: "Microsoft Azure", API: azure("Speech: Speech-to-text"),
+			Price: fmt.Sprintf("$%g / giờ audio", c.AzureSTTUSDPerHour), Active: az, Fallback: "Người học phải gõ câu trả lời"},
+	}
+	if s.translator.Name() == "azure" {
+		region := c.TranslatorRegion
+		if region == "" {
+			region = "global"
+		}
+		ps = append(ps, provider{Feature: "Dịch nghĩa tiếng Việt", Kind: "translate", Vendor: "Microsoft Azure",
+			API: "Translator Text v3 · region " + region, Price: fmt.Sprintf("$%g / 1M ký tự", c.TranslatorUSDPerMillion), Active: true})
+	} else {
+		ps = append(ps, provider{Feature: "Dịch nghĩa tiếng Việt", Kind: "translate", Vendor: "MyMemory (miễn phí)",
+			API: "api.mymemory.translated.net · chưa có AZURE_TRANSLATOR_KEY", Price: "Miễn phí", Active: true})
+	}
+	ps = append(ps,
+		provider{Feature: "Kịch bản AI & mô phỏng hội thoại", Kind: "script", Vendor: vendorOA, API: "Chat Completions: " + c.OpenAIChatModel,
+			Price: fmt.Sprintf("$%g / $%g mỗi 1M token vào / ra", c.OpenAIChatUSDPerMIn, c.OpenAIChatUSDPerMOut), Active: oa, Fallback: "Tắt (cần OPENAI_API_KEY)"},
+		provider{Feature: "Bài tập ngữ pháp", Kind: "grammar", Vendor: vendorOA, API: "Chat Completions: model người dùng chọn (mặc định " + openai.GrammarModels[0].ID + ")",
+			Price: "Theo từng model", Active: oa, Fallback: "Tắt (cần OPENAI_API_KEY)"},
+		provider{Feature: "Ảnh AI", Kind: "image", Vendor: vendorOA, API: "Images: " + c.OpenAIImageModel,
+			Price: fmt.Sprintf("$%g / ảnh", c.OpenAIImageUSD), Active: oa, Fallback: "Tắt (cần OPENAI_API_KEY)"},
+	)
+	return ps
+}
+
+func ttsPrice(c config.Config) string {
+	if strings.HasPrefix(c.OpenAITTSModel, "tts-1") {
+		return fmt.Sprintf("$%g / 1M ký tự", c.OpenAITTSUSDPerMChars)
+	}
+	return fmt.Sprintf("$%g / phút audio", c.OpenAITTSUSDPerMinute)
 }
 
 var costKinds = []string{"assess", "script", "tts", "image", "simulation", "translate"}
