@@ -19,7 +19,7 @@ const SUGGESTIONS: Record<string, string[]> = {
 
 export const SECTIONS: { key: GrammarSection; icon: string; label: string; hint: string }[] = [
   { key: "multipleChoice", icon: "🔘", label: "Trắc nghiệm", hint: "Chọn 1 trong 4 đáp án" },
-  { key: "rearrange", icon: "🔀", label: "Sắp xếp câu", hint: "Gõ lại câu đúng thứ tự vào ô bên dưới" },
+  { key: "rearrange", icon: "🔀", label: "Sắp xếp câu", hint: "Bấm từng ô theo đúng thứ tự để ghép câu" },
   { key: "reading", icon: "📖", label: "Đọc hiểu", hint: "1 bài đọc + câu hỏi trắc nghiệm" },
   { key: "listening", icon: "🎧", label: "Nghe hiểu", hint: "1 bài nghe + trắc nghiệm & điền từ" },
   { key: "writing", icon: "✍️", label: "Viết (dịch Anh → Đức)", hint: "AI chấm từng câu" },

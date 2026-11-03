@@ -360,28 +360,87 @@ function ChoiceList({
   );
 }
 
+/**
+ * Rebuilds which fragments (by index) a saved answer used, so a reload shows
+ * the same boxes. Returns null for answers typed by hand (older sets).
+ */
+function fragmentOrder(fragments: string[], value: string): number[] | null {
+  const order: number[] = [];
+  let rest = value.trim();
+  while (rest) {
+    let best = -1;
+    fragments.forEach((f, i) => {
+      if (!order.includes(i) && rest.startsWith(f) && (rest.length === f.length || rest[f.length] === " ") && (best < 0 || f.length > fragments[best].length)) best = i;
+    });
+    if (best < 0) return null;
+    order.push(best);
+    rest = rest.slice(fragments[best].length).trimStart();
+  }
+  return order;
+}
+
+/** Click the boxes on top in the right order; they move down into the answer line. Click one there to put it back. */
 function RearrangeItem({ n, q, value, checked, onChange }: { n: number; q: RearrangeQuestion; value: string; checked: boolean; onChange: (v: string) => void }) {
   const ok = matches(value, [q.answer, ...q.alternatives]);
+  const [order, setOrder] = useState<number[]>(() => fragmentOrder(q.fragments, value) ?? []);
+  const legacy = !!value.trim() && order.length === 0; // a typed answer from before boxes existed
+  const update = (next: number[]) => {
+    setOrder(next);
+    onChange(next.map((i) => q.fragments[i]).join(" "));
+  };
+  const chip = "rounded-lg px-2.5 py-1 font-medium ring-1 transition";
   return (
     <li>
       <div className="flex flex-wrap items-center gap-2">
         <span className="mr-1 text-slate-400">{n}.</span>
-        {q.fragments.map((f, i) => (
-          <span key={i} className="rounded-lg bg-slate-100 px-2.5 py-1 font-medium text-slate-800 ring-1 ring-slate-200">
-            {f}
-          </span>
-        ))}
+        {q.fragments.map((f, i) =>
+          order.includes(i) ? (
+            // keep the slot so the other boxes do not jump around
+            <span key={i} aria-hidden className={`${chip} border border-dashed border-slate-300 text-transparent ring-transparent`}>
+              {f}
+            </span>
+          ) : (
+            <button
+              key={i}
+              disabled={checked}
+              onClick={() => update([...order, i])}
+              className={`${chip} bg-slate-100 text-slate-800 ring-slate-200 hover:bg-indigo-50 hover:ring-indigo-300 disabled:hover:bg-slate-100`}
+            >
+              {f}
+            </button>
+          ),
+        )}
       </div>
-      <input
-        value={value}
-        disabled={checked}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder="Gõ câu hoàn chỉnh…"
-        spellCheck={false}
-        className={`mt-2 w-full rounded-lg border bg-transparent px-3 py-2 outline-none focus:border-indigo-500 ${
-          checked ? (ok ? "border-emerald-400 text-emerald-700" : "border-red-400 text-red-700") : "border-slate-300"
+      <div
+        className={`mt-2 flex min-h-[2.75rem] flex-wrap items-center gap-2 rounded-lg border px-2 py-1.5 ${
+          checked ? (ok ? "border-emerald-400" : "border-red-400") : "border-slate-300"
         }`}
-      />
+      >
+        {legacy ? (
+          <span className={`px-1 ${checked ? (ok ? "text-emerald-700" : "text-red-700") : "text-slate-800"}`}>{value}</span>
+        ) : order.length === 0 ? (
+          <span className="px-1 text-sm text-slate-400">Bấm các ô phía trên theo đúng thứ tự…</span>
+        ) : (
+          order.map((i, k) => (
+            <button
+              key={i}
+              disabled={checked}
+              onClick={() => update(order.filter((_, j) => j !== k))}
+              title="Bấm để bỏ ra"
+              className={`${chip} ${
+                checked ? (ok ? "bg-emerald-50 text-emerald-800 ring-emerald-300" : "bg-red-50 text-red-800 ring-red-300") : "bg-indigo-50 text-indigo-800 ring-indigo-300 hover:bg-indigo-100"
+              }`}
+            >
+              {q.fragments[i]}
+            </button>
+          ))
+        )}
+        {!checked && (order.length > 0 || legacy) && (
+          <button onClick={() => update([])} className="ml-auto px-2 text-xs text-slate-400 hover:text-slate-700" title="Làm lại câu này">
+            ↺ Làm lại
+          </button>
+        )}
+      </div>
       {checked && (
         <Explanation ok={ok}>
           {!ok && (
