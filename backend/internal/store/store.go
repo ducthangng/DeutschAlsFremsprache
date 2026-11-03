@@ -257,7 +257,8 @@ func (s *Store) TopicCosts(ctx context.Context, topicID int64) ([]*TopicCost, er
 // NewTopicExtras are optional side effects of creating a topic from an AI generation.
 type NewTopicExtras struct {
 	GenerationIDs []int64      // ai_usage rows of script generations, attributed to the new topic
-	Vocabulary    []VocabEntry // terms to add to the owner's Vocabulary Pocket (existing ones are kept)
+	Vocabulary    []VocabEntry // the topic's word list
+	Pocket        []VocabEntry // terms the owner chose to add to their Vocabulary Pocket (existing ones are kept)
 }
 
 func (s *Store) CreateTopic(ctx context.Context, t *Topic, lines []topic.Line, extras NewTopicExtras) (*Topic, error) {
@@ -277,7 +278,12 @@ func (s *Store) CreateTopic(ctx context.Context, t *Topic, lines []topic.Line, e
 				return err
 			}
 		}
-		for _, v := range extras.Vocabulary {
+		for i, v := range extras.Vocabulary {
+			if err := q.AddTopicVocab(ctx, gen.AddTopicVocabParams{TopicID: id, Position: int32(i), Term: v.Term, Meaning: v.Meaning}); err != nil {
+				return err
+			}
+		}
+		for _, v := range extras.Pocket {
 			if err := q.AddVocabIfMissing(ctx, gen.AddVocabIfMissingParams{UserID: t.UserID, Language: t.Language, Term: v.Term, Meaning: v.Meaning,
 				TopicID: pgtype.Int8{Int64: id, Valid: true}}); err != nil {
 				return err

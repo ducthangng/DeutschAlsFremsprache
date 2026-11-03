@@ -19,6 +19,7 @@ const KINDS: Record<CostKind, { label: string; icon: string; color: string }> = 
   tts: { label: "Giọng đọc AI", icon: "🔊", color: "bg-indigo-100 text-indigo-700" },
   image: { label: "Ảnh AI", icon: "🖼", color: "bg-[#ec4899]/15 text-[#f9a8d4]" },
   simulation: { label: "Mô phỏng (LLM)", icon: "💬", color: "bg-amber-100 text-amber-700" },
+  grammar: { label: "Ngữ pháp (LLM)", icon: "📘", color: "bg-sky-100 text-sky-700" },
   translate: { label: "Dịch nghĩa", icon: "🌐", color: "bg-emerald-100 text-emerald-700" },
 };
 

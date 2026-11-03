@@ -48,15 +48,19 @@ WHERE user_id = sqlc.arg(user_id)
 GROUP BY day
 ORDER BY day;
 
--- Used when saving a generated topic's vocabulary; existing terms are kept.
+-- Words the owner picked when saving a generated topic; existing terms are kept.
 -- name: AddVocabIfMissing :exec
 INSERT INTO vocab_entries (user_id, language, term, meaning, topic_id, image_key)
 VALUES ($1, $2, $3, $4, $5, $6)
 ON CONFLICT DO NOTHING;
 
--- The topic owner's word list for a topic (e.g. saved when generating it with AI).
--- name: TopicOwnerVocab :many
-SELECT v.term, v.meaning, v.example, v.image_key
-FROM vocab_entries v JOIN topics t ON t.id = v.topic_id
-WHERE v.topic_id = $1 AND v.user_id = t.user_id
-ORDER BY v.created_at;
+-- A topic's word list (e.g. the vocabulary of an AI generation).
+-- name: TopicVocab :many
+SELECT term, meaning, example, image_key FROM topic_vocab
+WHERE topic_id = $1
+ORDER BY position;
+
+-- name: AddTopicVocab :exec
+INSERT INTO topic_vocab (topic_id, position, term, meaning)
+VALUES ($1, $2, $3, $4)
+ON CONFLICT DO NOTHING;

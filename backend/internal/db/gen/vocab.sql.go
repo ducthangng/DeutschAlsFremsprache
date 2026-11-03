@@ -12,6 +12,29 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const addTopicVocab = `-- name: AddTopicVocab :exec
+INSERT INTO topic_vocab (topic_id, position, term, meaning)
+VALUES ($1, $2, $3, $4)
+ON CONFLICT DO NOTHING
+`
+
+type AddTopicVocabParams struct {
+	TopicID  int64
+	Position int32
+	Term     string
+	Meaning  string
+}
+
+func (q *Queries) AddTopicVocab(ctx context.Context, arg AddTopicVocabParams) error {
+	_, err := q.db.Exec(ctx, addTopicVocab,
+		arg.TopicID,
+		arg.Position,
+		arg.Term,
+		arg.Meaning,
+	)
+	return err
+}
+
 const addVocabIfMissing = `-- name: AddVocabIfMissing :exec
 INSERT INTO vocab_entries (user_id, language, term, meaning, topic_id, image_key)
 VALUES ($1, $2, $3, $4, $5, $6)
@@ -27,7 +50,7 @@ type AddVocabIfMissingParams struct {
 	ImageKey string
 }
 
-// Used when saving a generated topic's vocabulary; existing terms are kept.
+// Words the owner picked when saving a generated topic; existing terms are kept.
 func (q *Queries) AddVocabIfMissing(ctx context.Context, arg AddVocabIfMissingParams) error {
 	_, err := q.db.Exec(ctx, addVocabIfMissing,
 		arg.UserID,
@@ -291,30 +314,29 @@ func (q *Queries) SetVocabImage(ctx context.Context, arg SetVocabImageParams) (V
 	return i, err
 }
 
-const topicOwnerVocab = `-- name: TopicOwnerVocab :many
-SELECT v.term, v.meaning, v.example, v.image_key
-FROM vocab_entries v JOIN topics t ON t.id = v.topic_id
-WHERE v.topic_id = $1 AND v.user_id = t.user_id
-ORDER BY v.created_at
+const topicVocab = `-- name: TopicVocab :many
+SELECT term, meaning, example, image_key FROM topic_vocab
+WHERE topic_id = $1
+ORDER BY position
 `
 
-type TopicOwnerVocabRow struct {
+type TopicVocabRow struct {
 	Term     string
 	Meaning  string
 	Example  string
 	ImageKey string
 }
 
-// The topic owner's word list for a topic (e.g. saved when generating it with AI).
-func (q *Queries) TopicOwnerVocab(ctx context.Context, topicID pgtype.Int8) ([]TopicOwnerVocabRow, error) {
-	rows, err := q.db.Query(ctx, topicOwnerVocab, topicID)
+// A topic's word list (e.g. the vocabulary of an AI generation).
+func (q *Queries) TopicVocab(ctx context.Context, topicID int64) ([]TopicVocabRow, error) {
+	rows, err := q.db.Query(ctx, topicVocab, topicID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []TopicOwnerVocabRow{}
+	items := []TopicVocabRow{}
 	for rows.Next() {
-		var i TopicOwnerVocabRow
+		var i TopicVocabRow
 		if err := rows.Scan(
 			&i.Term,
 			&i.Meaning,

@@ -24,7 +24,8 @@ type topicInput struct {
 	Images []string `json:"images"`
 	// Only on create, when the content came from "Tạo bằng AI".
 	GenerationIDs []int64           `json:"generationIds"` // every attempt, so regenerations are attributed too
-	Vocabulary    []vocabSuggestion `json:"vocabulary"`    // added to the owner's Pocket
+	Vocabulary    []vocabSuggestion `json:"vocabulary"`    // the topic's word list
+	PocketTerms   []string          `json:"pocketTerms"`   // words of Vocabulary the owner ticked for their Pocket
 }
 
 type vocabSuggestion struct {
@@ -136,9 +137,17 @@ func (s *Server) createTopic(w http.ResponseWriter, r *http.Request) {
 		in.GenerationIDs = in.GenerationIDs[:20]
 	}
 	extras := store.NewTopicExtras{GenerationIDs: in.GenerationIDs}
+	picked := map[string]bool{}
+	for _, t := range in.PocketTerms {
+		picked[strings.ToLower(strings.TrimSpace(t))] = true
+	}
 	for _, v := range in.Vocabulary {
 		if term := strings.TrimSpace(v.Term); term != "" && utf8.RuneCountInString(term) <= 200 {
-			extras.Vocabulary = append(extras.Vocabulary, store.VocabEntry{Term: term, Meaning: strings.TrimSpace(v.Meaning)})
+			e := store.VocabEntry{Term: term, Meaning: strings.TrimSpace(v.Meaning)}
+			extras.Vocabulary = append(extras.Vocabulary, e)
+			if picked[strings.ToLower(term)] {
+				extras.Pocket = append(extras.Pocket, e)
+			}
 		}
 	}
 	t, err := s.store.CreateTopic(r.Context(), in.toTopic(auth.UserID(r.Context())), lines, extras)

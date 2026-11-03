@@ -141,6 +141,14 @@ func (s *Server) Handler() http.Handler {
 	protected("POST /api/vocab/{id}/image", s.generateVocabImage)
 	protected("GET /api/vocab/stats", s.vocabStats)
 
+	protected("GET /api/grammar/models", s.grammarModels)
+	protected("GET /api/grammar", s.listGrammarSets)
+	protected("POST /api/grammar", s.createGrammarSet)
+	protected("GET /api/grammar/{id}", s.getGrammarSet)
+	protected("PUT /api/grammar/{id}/answers", s.saveGrammarAnswers)
+	protected("POST /api/grammar/{id}/writing", s.gradeGrammarWriting)
+	protected("DELETE /api/grammar/{id}", s.deleteGrammarSet)
+
 	protected("GET /api/recordings/{id}/audio", s.recordingAudio)
 	protected("DELETE /api/recordings/{id}", s.deleteRecording)
 
@@ -169,6 +177,7 @@ func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 		"storage":           s.media.Name(),
 		"simulations":       s.openai.Enabled(),
 		"imageGeneration":   s.openai.Enabled(),
+		"grammar":           s.openai.Enabled(),
 	})
 }
 

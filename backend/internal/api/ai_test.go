@@ -87,10 +87,15 @@ func TestAIGenerationSpeechAndPublicTopics(t *testing.T) {
 	if code != 201 || tp.TotalCost != 0.002 || tp.Visibility != "public" || !tp.IsOwner {
 		t.Fatalf("create: %d %+v", code, tp)
 	}
+	// The word list belongs to the topic; nothing reaches the Pocket unless ticked.
 	var vocab []store.VocabEntry
 	owner.json("GET", "/api/vocab", nil, &vocab)
-	if len(vocab) != 1 || vocab[0].Term != "die Fahrkarte" || vocab[0].TopicID == nil {
-		t.Fatalf("pocket: %+v", vocab)
+	if len(vocab) != 0 {
+		t.Fatalf("pocket filled without asking: %+v", vocab)
+	}
+	owner.json("GET", "/api/topics/"+itoa(tp.ID)+"/vocabulary", nil, &vocab)
+	if len(vocab) != 1 || vocab[0].Term != "die Fahrkarte" || vocab[0].Meaning != "vé tàu" {
+		t.Fatalf("topic vocabulary: %+v", vocab)
 	}
 
 	// 3. Another user sees it publicly, can practice it, but cannot edit it.
@@ -173,5 +178,27 @@ func TestAIGenerationSpeechAndPublicTopics(t *testing.T) {
 	owner.json("PATCH", path+"/visibility", map[string]string{"visibility": "private"}, nil)
 	if code := learner.json("GET", path, nil, nil); code != 404 {
 		t.Fatalf("private topic visible: %d", code)
+	}
+}
+
+// Only the words the owner ticks go into their Pocket; the topic keeps the whole list.
+func TestTopicPocketPicks(t *testing.T) {
+	_, srv, _ := newTestAPI(t)
+	c := other(t, srv.URL)
+	var tp store.Topic
+	code := c.json("POST", "/api/topics", topicInput{Title: "Bahnhof", Language: "de-DE", Kind: "dialogue", Content: "A: Wo ist Gleis drei?",
+		Vocabulary:  []vocabSuggestion{{Term: "die Fahrkarte", Meaning: "vé"}, {Term: "das Gleis", Meaning: "sân ga"}},
+		PocketTerms: []string{"DAS GLEIS "}}, &tp)
+	if code != 201 {
+		t.Fatalf("create: %d", code)
+	}
+	var vocab []store.VocabEntry
+	c.json("GET", "/api/vocab", nil, &vocab)
+	if len(vocab) != 1 || vocab[0].Term != "das Gleis" || vocab[0].TopicID == nil || *vocab[0].TopicID != tp.ID {
+		t.Fatalf("pocket: %+v", vocab)
+	}
+	c.json("GET", "/api/topics/"+itoa(tp.ID)+"/vocabulary", nil, &vocab)
+	if len(vocab) != 2 || vocab[0].Term != "die Fahrkarte" {
+		t.Fatalf("topic vocabulary: %+v", vocab)
 	}
 }

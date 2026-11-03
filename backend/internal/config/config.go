@@ -41,6 +41,7 @@ type Config struct {
 	OpenAIImageModel        string
 	OpenAIImageUSD          float64 // per generated image
 	AzureSTTUSDPerHour      float64 // plain transcription (simulations)
+	AzureTTSUSDPerMChars    float64 // neural text-to-speech (grammar listening)
 	S3Bucket                string
 	S3Region                string
 	S3Prefix                string
@@ -141,6 +142,7 @@ func loadEnv() Config {
 		OpenAIImageModel:      env("OPENAI_IMAGE_MODEL", "gpt-image-1"),
 		OpenAIImageUSD:        envFloat("OPENAI_IMAGE_USD", 0.011), // gpt-image-1, low quality, 1024x1024
 		AzureSTTUSDPerHour:    envFloat("AZURE_STT_USD_PER_HOUR", 1.0),
+		AzureTTSUSDPerMChars:  envFloat("AZURE_TTS_USD_PER_MILLION_CHARS", 15),
 		S3Bucket:              env("S3_BUCKET", ""),
 		S3Region:              env("AWS_REGION", "eu-central-1"),
 		S3Prefix:              env("S3_PREFIX", "deutschfremsprache"),

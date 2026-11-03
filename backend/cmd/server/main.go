@@ -49,6 +49,9 @@ func main() {
 		log.Println("S3_BUCKET not set: generated audio is stored on local disk under DATA_DIR/media")
 	}
 	app.MigrateLocalRecordings(context.Background())
+	if err := st.FailStaleGrammarSets(context.Background()); err != nil {
+		log.Printf("grammar: %v", err)
+	}
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,

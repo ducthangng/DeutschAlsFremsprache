@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 )
 
@@ -13,8 +14,14 @@ import (
 // the answer into out. Usage is returned even when decoding fails (tokens are
 // billed either way).
 func (c *Client) chatJSON(ctx context.Context, system, user, schemaName string, schema map[string]any, temperature float64, out any) (*Usage, error) {
+	m := Model{ID: c.cfg.ChatModel, USDPerMInput: c.cfg.ChatUSDPerMInput, USDPerMOutput: c.cfg.ChatUSDPerMOutput}
+	return c.chatJSONWith(ctx, c.http, m, system, user, schemaName, schema, temperature, out)
+}
+
+// chatJSONWith is chatJSON with a chosen model (priced by m) and HTTP client.
+func (c *Client) chatJSONWith(ctx context.Context, hc *http.Client, m Model, system, user, schemaName string, schema map[string]any, temperature float64, out any) (*Usage, error) {
 	body := map[string]any{
-		"model": c.cfg.ChatModel,
+		"model": m.ID,
 		"messages": []map[string]string{
 			{"role": "system", "content": system},
 			{"role": "user", "content": user},
@@ -24,10 +31,13 @@ func (c *Client) chatJSON(ctx context.Context, system, user, schemaName string, 
 			"json_schema": map[string]any{"name": schemaName, "strict": true, "schema": schema},
 		},
 	}
-	if !strings.HasPrefix(c.cfg.ChatModel, "gpt-5") && !strings.HasPrefix(c.cfg.ChatModel, "o") {
+	if !strings.HasPrefix(m.ID, "gpt-5") && !strings.HasPrefix(m.ID, "o") {
 		body["temperature"] = temperature
 	}
-	raw, err := c.post(ctx, "/chat/completions", body)
+	if m.ReasoningEffort != "" {
+		body["reasoning_effort"] = m.ReasoningEffort
+	}
+	raw, err := c.postWith(ctx, hc, "/chat/completions", body)
 	if err != nil {
 		return nil, err
 	}
@@ -47,8 +57,8 @@ func (c *Client) chatJSON(ctx context.Context, system, user, schemaName string, 
 	if err := json.Unmarshal(raw, &resp); err != nil {
 		return nil, fmt.Errorf("decode openai response: %w", err)
 	}
-	u := &Usage{Model: c.cfg.ChatModel, InputTokens: resp.Usage.PromptTokens, OutputTokens: resp.Usage.CompletionTokens}
-	u.CostUSD = float64(u.InputTokens)/1e6*c.cfg.ChatUSDPerMInput + float64(u.OutputTokens)/1e6*c.cfg.ChatUSDPerMOutput
+	u := &Usage{Model: m.ID, InputTokens: resp.Usage.PromptTokens, OutputTokens: resp.Usage.CompletionTokens}
+	u.CostUSD = float64(u.InputTokens)/1e6*m.USDPerMInput + float64(u.OutputTokens)/1e6*m.USDPerMOutput
 	switch {
 	case len(resp.Choices) == 0:
 		return u, errors.New("openai returned no choices")

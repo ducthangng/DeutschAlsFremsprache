@@ -112,8 +112,10 @@ export interface TopicInput {
   images?: string[];
   /** From "Tạo bằng AI": links the generation costs to the new topic. */
   generationIds?: number[];
-  /** Added to the owner's Vocabulary Pocket on create. */
+  /** The topic's word list (from "Tạo bằng AI"), saved on create. */
   vocabulary?: { term: string; meaning: string }[];
+  /** Terms of `vocabulary` the owner ticked to add to their Vocabulary Pocket. */
+  pocketTerms?: string[];
 }
 
 export interface GenerateRequest {
@@ -442,7 +444,7 @@ export interface ReviewLine {
 }
 
 export type CostPeriod = "today" | "7d" | "month" | "all";
-export type CostKind = "assess" | "script" | "tts" | "image" | "simulation" | "translate";
+export type CostKind = "assess" | "script" | "tts" | "image" | "simulation" | "grammar" | "translate";
 export type CostScope = "topic" | "simulation" | "none";
 
 export interface CostSplit {
@@ -497,6 +499,117 @@ export interface AIUsagePeriod {
   simulationCostUsd: number;
 }
 
+// ---------------- grammar exercises ----------------
+
+export type GrammarSection = "multipleChoice" | "rearrange" | "reading" | "listening" | "writing";
+
+/** Question count per section; 0 = not wanted. */
+export type GrammarSections = Record<GrammarSection, number>;
+
+export interface GrammarModel {
+  id: string;
+  label: string;
+  note: string;
+  usdPerMInput: number;
+  usdPerMOutput: number;
+  /** Price not confirmed against OpenAI's price list. */
+  priceEstimated: boolean;
+}
+
+export interface GrammarModels {
+  models: GrammarModel[];
+  defaultModel: string;
+  limits: GrammarSections;
+  enabled: boolean;
+  /** Listening audio is rendered by Azure; otherwise the browser reads the script. */
+  listeningAudio: boolean;
+}
+
+export interface ChoiceQuestion {
+  question: string;
+  options: string[];
+  answer: number;
+  explanation: string;
+}
+
+export interface RearrangeQuestion {
+  fragments: string[];
+  answer: string;
+  alternatives: string[];
+  translation: string;
+  explanation: string;
+}
+
+export interface ListeningQuestion {
+  kind: "choice" | "blank";
+  question: string;
+  options: string[];
+  answer: number;
+  accepted: string[];
+  explanation: string;
+}
+
+export interface GrammarContent {
+  title: string;
+  overview: string;
+  multipleChoice: ChoiceQuestion[];
+  rearrange: RearrangeQuestion[];
+  reading: { title: string; passage: string; questions: ChoiceQuestion[] } | null;
+  listening: {
+    title: string;
+    situation: string;
+    speakers: { name: string; gender: "female" | "male" }[];
+    segments: { speaker: string; text: string }[];
+    questions: ListeningQuestion[];
+  } | null;
+  writing: { english: string; german: string; alternatives: string[]; hint: string }[];
+  /** Sections that could not be generated (plus "listeningAudio"), with the reason. */
+  errors?: Partial<Record<GrammarSection | "overview" | "listeningAudio", string>>;
+}
+
+/** The learner's answers, saved on the server so a set can be resumed. */
+export interface GrammarAnswers {
+  multipleChoice: Record<number, number>;
+  rearrange: Record<number, string>;
+  reading: Record<number, number>;
+  listening: Record<number, number | string>;
+  writing: Record<number, string>;
+  /** Sections whose answers have been revealed. */
+  checked: Partial<Record<GrammarSection, boolean>>;
+}
+
+export interface WritingFeedback {
+  /** The answers that were graded. */
+  answers: string[];
+  items: { score: number; verdict: "correct" | "minor" | "wrong"; corrected: string; feedback: string }[];
+}
+
+export interface GrammarSet {
+  id: number;
+  grammar: string;
+  level: string;
+  model: string;
+  sections: GrammarSections;
+  status: "generating" | "ready" | "failed";
+  error: string;
+  title: string;
+  costUsd: number;
+  content?: GrammarContent | null;
+  audioUrl?: string;
+  answers?: GrammarAnswers | null;
+  writingFeedback?: WritingFeedback | null;
+  started: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface GrammarRequest {
+  grammar: string;
+  level: string;
+  model: string;
+  sections: GrammarSections;
+}
+
 export interface Health {
   ok: boolean;
   azure: boolean;
@@ -509,6 +622,7 @@ export interface Health {
   storage: string;
   simulations: boolean;
   imageGeneration: boolean;
+  grammar: boolean;
 }
 
 export const LANGUAGES: Record<Language, { label: string; flag: string }> = {
@@ -730,4 +844,13 @@ export const api = {
   },
   finishSimulation: (id: number) => json<SimulationDetail>(`/simulations/${id}/finish`, "POST"),
   turnSpeech: (simId: number, turnId: number) => json<SpeechClip>(`/simulations/${simId}/turns/${turnId}/speech`, "POST"),
+
+  grammarModels: () => json<GrammarModels>("/grammar/models"),
+  grammarSets: () => json<GrammarSet[]>("/grammar"),
+  getGrammarSet: (id: number) => json<GrammarSet>(`/grammar/${id}`),
+  createGrammarSet: (req: GrammarRequest) => json<GrammarSet>("/grammar", "POST", req),
+  saveGrammarAnswers: (id: number, answers: GrammarAnswers) => json<void>(`/grammar/${id}/answers`, "PUT", { answers }),
+  gradeGrammarWriting: (id: number, answers: string[]) =>
+    json<{ writingFeedback: WritingFeedback; costUsd: number }>(`/grammar/${id}/writing`, "POST", { answers }),
+  deleteGrammarSet: (id: number) => json<void>(`/grammar/${id}`, "DELETE"),
 };

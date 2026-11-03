@@ -151,7 +151,7 @@ export default function TopicForm() {
       setGeneration(res);
       if (res.generationId) setGenerationIds((ids) => [...ids, res.generationId]);
       setSpent((s) => s + res.usage.costUsd);
-      setPocketPicks(new Set(res.vocabulary.map((v) => v.term)));
+      setPocketPicks(new Set()); // the learner ticks the words they want; nothing is pre-selected
       setForm((f) => ({ ...f, title: res.title, description: res.description, kind: res.kind, content: res.content }));
     } catch (e) {
       setGenError(e instanceof Error ? e.message : "Không tạo được nội dung");
@@ -172,7 +172,8 @@ export default function TopicForm() {
             ...form,
             ...pictures,
             generationIds,
-            vocabulary: generation?.vocabulary.filter((v) => pocketPicks.has(v.term)) ?? [],
+            vocabulary: generation?.vocabulary ?? [],
+            pocketTerms: [...pocketPicks],
           });
       navigate(`/topics/${t.id}`);
     } catch (err) {
@@ -440,7 +441,7 @@ export default function TopicForm() {
           {generation && generation.vocabulary.length > 0 && (
             <div className="rounded-2xl bg-surface p-4 ring-1 ring-slate-200">
               <h2 className="text-sm font-semibold">🎒 Thêm vào Vocabulary Pocket</h2>
-              <p className="text-xs text-slate-500">Các từ được chọn sẽ được lưu vào Pocket khi bạn tạo topic.</p>
+              <p className="text-xs text-slate-500">Tick những từ bạn muốn học: chỉ các từ được chọn mới vào Pocket khi bạn tạo topic. Danh sách đầy đủ vẫn được lưu cùng topic.</p>
               <ul className="mt-2 grid gap-1 sm:grid-cols-2">
                 {generation.vocabulary.map((v) => (
                   <li key={v.term}>

@@ -307,8 +307,8 @@ func computeStats(cards []*store.VocabEntry, days []store.ReviewDay, now time.Ti
 	return st
 }
 
-// topicVocabulary lists the topic owner's word list for the topic, so other
-// learners can copy it into their own pocket.
+// topicVocabulary lists the topic's word list, so learners can pick words to
+// copy into their own pocket.
 func (s *Server) topicVocabulary(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(w, r)
 	if !ok {
@@ -318,7 +318,7 @@ func (s *Server) topicVocabulary(w http.ResponseWriter, r *http.Request) {
 		writeStoreError(w, err)
 		return
 	}
-	vs, err := s.store.TopicOwnerVocab(r.Context(), id)
+	vs, err := s.store.TopicVocab(r.Context(), id)
 	if err != nil {
 		writeStoreError(w, err)
 		return

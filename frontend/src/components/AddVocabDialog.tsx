@@ -20,7 +20,7 @@ function wordsOf(topic: TopicDetail): VocabCandidate[] {
 
 /**
  * Copy words from a topic (often someone else's) into your Vocabulary Pocket:
- * tick the topic's word list, or pick / search words from its sentences.
+ * tick words of the topic's word list, or pick / search words from its sentences.
  */
 export default function AddVocabDialog({ topic, onClose }: { topic: TopicDetail; onClose: () => void }) {
   const [list, setList] = useState<VocabCandidate[] | null>(null);
@@ -38,9 +38,7 @@ export default function AddVocabDialog({ topic, onClose }: { topic: TopicDetail;
       ([vocab, mine]) => {
         const have = new Set(mine.filter((v) => v.language === topic.language).map((v) => key(v.term)));
         setOwned(have);
-        setList(vocab);
-        // Pre-select the topic's word list, minus what is already in the pocket.
-        setPicked(new Map(vocab.filter((v) => !have.has(key(v.term))).map((v) => [key(v.term), v])));
+        setList(vocab); // nothing pre-selected: the learner picks every word themselves
         if (vocab.length === 0) setTab("words");
       },
       (e) => setError(e.message),

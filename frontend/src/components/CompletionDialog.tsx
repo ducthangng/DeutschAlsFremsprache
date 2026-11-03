@@ -123,16 +123,16 @@ export default function CompletionDialog({ topic, since, mode, onClose }: { topi
                 </p>
               </section>
 
-              {/* new words */}
+              {/* new words: the learner chooses what to keep */}
               <section className="rounded-2xl bg-slate-100 p-5">
-                <h3 className="text-sm font-semibold text-slate-600">📚 Từ mới thu thập ({data.newWords.length})</h3>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <h3 className="text-sm font-semibold text-slate-600">📚 Từ đã lưu vào Pocket ({data.newWords.length})</h3>
+                  <button onClick={() => setAddVocab(true)} className="rounded-lg px-3 py-1.5 text-sm font-medium text-indigo-700 ring-1 ring-indigo-200 hover:bg-indigo-50">
+                    ＋ Chọn từ để lưu
+                  </button>
+                </div>
                 {data.newWords.length === 0 ? (
-                  <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
-                    <p className="text-sm text-slate-500">Lưu vài từ của topic này để ôn bằng flash card nhé!</p>
-                    <button onClick={() => setAddVocab(true)} className="rounded-lg px-3 py-1.5 text-sm font-medium text-indigo-700 ring-1 ring-indigo-200 hover:bg-indigo-50">
-                      ＋ Lưu từ vựng
-                    </button>
-                  </div>
+                  <p className="mt-2 text-sm text-slate-500">Chọn những từ bạn muốn học từ topic này để ôn bằng flash card.</p>
                 ) : (
                   <ul className="mt-3 flex flex-wrap gap-2">
                     {data.newWords.map((v) => (

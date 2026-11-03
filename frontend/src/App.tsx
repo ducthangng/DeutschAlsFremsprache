@@ -10,6 +10,8 @@ import Practice from "./pages/Practice";
 import PublicTopics from "./pages/PublicTopics";
 import TopicForm from "./pages/TopicForm";
 import Home from "./pages/Home";
+import Grammar from "./pages/Grammar";
+import GrammarRun from "./pages/GrammarRun";
 import PlaylistDetail from "./pages/PlaylistDetail";
 import Playlists from "./pages/Playlists";
 import SimulationRun from "./pages/SimulationRun";
@@ -50,6 +52,8 @@ export default function App() {
         <Route path="/public" element={<RequireAuth><PublicTopics /></RequireAuth>} />
         <Route path="/simulations" element={<RequireAuth><Simulations /></RequireAuth>} />
         <Route path="/simulations/:id" element={<RequireAuth><SimulationRun /></RequireAuth>} />
+        <Route path="/grammar" element={<RequireAuth><Grammar /></RequireAuth>} />
+        <Route path="/grammar/:id" element={<RequireAuth><GrammarRun /></RequireAuth>} />
         <Route path="/pocket" element={<RequireAuth><Pocket /></RequireAuth>} />
         <Route path="/usage" element={<RequireAuth><RequireAdmin><Usage /></RequireAdmin></RequireAuth>} />
         <Route path="/activity" element={<RequireAuth><RequireAdmin><ActivityPage /></RequireAdmin></RequireAuth>} />

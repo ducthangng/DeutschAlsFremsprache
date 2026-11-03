@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { ColumnChart, GoalRing, MasteryBar, StatTile } from "../components/Charts";
 import Cover from "../components/Cover";
-import { useDialog } from "../components/Dialog";
+import { Modal, useDialog } from "../components/Dialog";
 import ImagePicker from "../components/ImagePicker";
 import { SpeedControl } from "../components/SpeechControls";
 import Spinner from "../components/Spinner";
@@ -51,6 +51,7 @@ export default function Pocket() {
   const [error, setError] = useState("");
   const [canDraw, setCanDraw] = useState(false);
   const [prefs, setPrefs] = usePrefs();
+  const [editor, setEditor] = useState<VocabEntry | "new" | null>(null); // the add / edit popup
   const playback = useRef<Playback | null>(null);
 
   const reload = () => {
@@ -94,21 +95,26 @@ export default function Pocket() {
           <h1 className="text-3xl font-bold text-slate-900">Vocabulary Pocket</h1>
           <p className="mt-1 text-slate-500">Từ của bạn, ôn bằng flash card đúng lúc bạn sắp quên.</p>
         </div>
-        <div className="inline-flex rounded-xl bg-surface p-1 ring-1 ring-slate-200">
-          {(
-            [
-              ["overview", "Tổng quan"],
-              ["words", `Từ vựng${entries ? ` (${entries.length})` : ""}`],
-            ] as const
-          ).map(([t, label]) => (
-            <button
-              key={t}
-              onClick={() => setTab(t)}
-              className={`rounded-lg px-4 py-1.5 text-sm font-medium ${tab === t ? "bg-indigo-600 text-white" : "text-slate-500 hover:text-slate-800"}`}
-            >
-              {label}
-            </button>
-          ))}
+        <div className="flex flex-wrap items-center gap-3">
+          <button onClick={() => setEditor("new")} className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500">
+            ＋ Thêm từ
+          </button>
+          <div className="inline-flex rounded-xl bg-surface p-1 ring-1 ring-slate-200">
+            {(
+              [
+                ["overview", "Tổng quan"],
+                ["words", `Từ vựng${entries ? ` (${entries.length})` : ""}`],
+              ] as const
+            ).map(([t, label]) => (
+              <button
+                key={t}
+                onClick={() => setTab(t)}
+                className={`rounded-lg px-4 py-1.5 text-sm font-medium ${tab === t ? "bg-indigo-600 text-white" : "text-slate-500 hover:text-slate-800"}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -124,7 +130,7 @@ export default function Pocket() {
           setGoal={(g) => setPrefs({ dailyGoal: g })}
           onReview={() => setReview(due.slice(0, 50))}
           onReviewAll={() => setReview(shuffle(entries).slice(0, 50))}
-          onAddWords={() => setTab("words")}
+          onAddWords={() => setEditor("new")}
         />
       )}
 
@@ -136,7 +142,20 @@ export default function Pocket() {
           canDraw={canDraw}
           rate={prefs.rate}
           setRate={(rate) => setPrefs({ rate })}
+          onEdit={setEditor}
           onChanged={() => api.vocabStats().then(setStats, () => {})}
+        />
+      )}
+
+      {editor && (
+        <VocabDialog
+          entry={editor === "new" ? null : editor}
+          onClose={() => setEditor(null)}
+          onSaved={(v, isNew) => {
+            setEntries((es) => (isNew ? [v, ...(es ?? [])] : (es?.map((x) => (x.id === v.id ? v : x)) ?? null)));
+            api.vocabStats().then(setStats, () => {});
+            if (isNew) setTab("words");
+          }}
         />
       )}
     </div>
@@ -169,7 +188,7 @@ function Overview({
       <div className="mt-16 text-center">
         <p className="text-5xl">🎒</p>
         <h2 className="mt-4 text-xl font-semibold text-slate-900">Pocket đang trống</h2>
-        <p className="mx-auto mt-2 max-w-md text-slate-500">Thêm từ ở tab Từ vựng, hoặc bôi đen một từ trong lúc luyện topic rồi bấm ＋ Pocket.</p>
+        <p className="mx-auto mt-2 max-w-md text-slate-500">Pocket chỉ chứa những từ bạn tự chọn: thêm từ bằng nút bên dưới, hoặc bôi đen một từ trong lúc luyện topic rồi bấm ＋ Pocket.</p>
         <button onClick={onAddWords} className="mt-6 rounded-xl bg-indigo-600 px-5 py-2.5 font-semibold text-white hover:bg-indigo-500">
           ＋ Thêm từ
         </button>
@@ -292,39 +311,16 @@ function Overview({
 
 const emptyForm = (language: Language): VocabInput => ({ language, term: "", meaning: "", example: "", imageKey: "" });
 
-function Words({
-  entries,
-  setEntries,
-  listen,
-  canDraw,
-  rate,
-  setRate,
-  onChanged,
-}: {
-  entries: VocabEntry[];
-  setEntries: (fn: (es: VocabEntry[] | null) => VocabEntry[] | null) => void;
-  listen: (v: VocabEntry) => void;
-  canDraw: boolean;
-  rate: number;
-  setRate: (r: number) => void;
-  onChanged: () => void;
-}) {
-  const [form, setForm] = useState<VocabInput>(emptyForm("de-DE"));
-  const [imageUrl, setImageUrl] = useState("");
-  const [editing, setEditing] = useState<number | null>(null);
+/** Popup to add a word to the pocket by hand, or edit one. */
+function VocabDialog({ entry, onClose, onSaved }: { entry: VocabEntry | null; onClose: () => void; onSaved: (v: VocabEntry, isNew: boolean) => void }) {
+  const [form, setForm] = useState<VocabInput>(() =>
+    entry ? { language: entry.language, term: entry.term, meaning: entry.meaning, example: entry.example, imageKey: entry.imageKey } : emptyForm("de-DE"),
+  );
+  const [imageUrl, setImageUrl] = useState(entry?.imageUrl ?? "");
   const [msg, setMsg] = useState("");
+  const [added, setAdded] = useState("");
   const [busy, setBusy] = useState(false);
-  const [drawing, setDrawing] = useState<number | null>(null);
-  const [lang, setLang] = useState<Language | "">("");
-  const [query, setQuery] = useState("");
-  const dialog = useDialog();
-
-  const visible = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return entries.filter((v) => (!lang || v.language === lang) && (!q || v.term.toLowerCase().includes(q) || v.meaning.toLowerCase().includes(q)));
-  }, [entries, lang, query]);
-
-  const replace = (v: VocabEntry) => setEntries((es) => es?.map((x) => (x.id === v.id ? v : x)) ?? null);
+  const termRef = useRef<HTMLInputElement>(null);
 
   async function suggestMeaning() {
     if (!form.term.trim()) return;
@@ -345,21 +341,114 @@ function Words({
     setBusy(true);
     setMsg("");
     try {
-      if (editing !== null) replace(await api.updateVocab(editing, form));
-      else {
-        const v = await api.createVocab(form);
-        setEntries((es) => [v, ...(es ?? [])]);
+      if (entry) {
+        onSaved(await api.updateVocab(entry.id, form), false);
+        onClose();
+        return;
       }
+      const v = await api.createVocab(form);
+      onSaved(v, true);
+      // Stay open so several words can be added in a row.
+      setAdded(v.term);
       setForm(emptyForm(form.language));
       setImageUrl("");
-      setEditing(null);
-      onChanged();
+      termRef.current?.focus();
     } catch (err) {
       setMsg(err instanceof ApiError && err.status === 409 ? "Từ này đã có trong Pocket." : err instanceof Error ? err.message : "Không lưu được");
     } finally {
       setBusy(false);
     }
   }
+
+  const input = "w-full rounded-lg border border-slate-300 bg-transparent px-3 py-2 outline-none focus:border-indigo-500";
+
+  return (
+    <Modal open onClose={onClose} title={entry ? "Sửa từ" : "Thêm từ vào Pocket"} width="max-w-lg">
+      <form onSubmit={submit} className="space-y-3">
+        {!entry && (
+          <div className="flex gap-1 rounded-xl bg-slate-100 p-1 text-sm">
+            {(Object.keys(LANGUAGES) as Language[]).map((l) => (
+              <button
+                type="button"
+                key={l}
+                onClick={() => setForm((f) => ({ ...f, language: l }))}
+                className={`flex-1 rounded-lg px-2 py-1.5 font-medium ${form.language === l ? "bg-surface text-indigo-700 shadow-sm" : "text-slate-500"}`}
+              >
+                {LANGUAGES[l].flag} {LANGUAGES[l].label}
+              </button>
+            ))}
+          </div>
+        )}
+        <input
+          ref={termRef}
+          autoFocus
+          className={input}
+          required
+          maxLength={200}
+          placeholder="Từ / cụm từ, VD: die Verspätung"
+          value={form.term}
+          onChange={(e) => setForm({ ...form, term: e.target.value })}
+        />
+        <div className="flex gap-2">
+          <input className={input} placeholder="Nghĩa tiếng Việt" value={form.meaning} onChange={(e) => setForm({ ...form, meaning: e.target.value })} />
+          <button type="button" onClick={suggestMeaning} disabled={busy || !form.term.trim()} className="shrink-0 rounded-lg px-3 text-sm text-indigo-700 ring-1 ring-indigo-200 hover:bg-indigo-50 disabled:opacity-40">
+            🪄 Dịch
+          </button>
+        </div>
+        <textarea className={`${input} h-16 text-sm`} placeholder="Câu ví dụ (tuỳ chọn)" value={form.example} onChange={(e) => setForm({ ...form, example: e.target.value })} />
+        <ImagePicker
+          url={imageUrl}
+          label="Thêm ảnh minh hoạ"
+          onChange={(key, url) => {
+            setForm((f) => ({ ...f, imageKey: key }));
+            setImageUrl(url);
+          }}
+        />
+        {msg && <p className="text-sm text-red-600">{msg}</p>}
+        {added && !msg && <p className="text-sm text-emerald-600">✓ Đã thêm “{added}”. Thêm từ tiếp theo, hoặc đóng.</p>}
+        <div className="flex justify-end gap-2 pt-1">
+          <button type="button" onClick={onClose} className="rounded-xl px-4 py-2 text-sm text-slate-600 hover:bg-slate-100">
+            {added ? "Xong" : "Huỷ"}
+          </button>
+          <button disabled={busy} className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-60">
+            {entry ? "Lưu" : "Thêm vào Pocket"}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function Words({
+  entries,
+  setEntries,
+  listen,
+  canDraw,
+  rate,
+  setRate,
+  onEdit,
+  onChanged,
+}: {
+  entries: VocabEntry[];
+  setEntries: (fn: (es: VocabEntry[] | null) => VocabEntry[] | null) => void;
+  listen: (v: VocabEntry) => void;
+  canDraw: boolean;
+  rate: number;
+  setRate: (r: number) => void;
+  onEdit: (v: VocabEntry) => void;
+  onChanged: () => void;
+}) {
+  const [drawing, setDrawing] = useState<number | null>(null);
+  const [lang, setLang] = useState<Language | "">("");
+  const [query, setQuery] = useState("");
+  const dialog = useDialog();
+
+  const visible = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return entries.filter((v) => (!lang || v.language === lang) && (!q || v.term.toLowerCase().includes(q) || v.meaning.toLowerCase().includes(q)));
+  }, [entries, lang, query]);
+
+  const replace = (v: VocabEntry) => setEntries((es) => es?.map((x) => (x.id === v.id ? v : x)) ?? null);
 
   async function draw(v: VocabEntry) {
     const ok = await dialog.confirm({
@@ -385,88 +474,26 @@ function Words({
     onChanged();
   }
 
-  function startEdit(v: VocabEntry) {
-    setEditing(v.id);
-    setForm({ language: v.language, term: v.term, meaning: v.meaning, example: v.example, imageKey: v.imageKey });
-    setImageUrl(v.imageUrl);
-    setMsg("");
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  }
-
   const input = "w-full rounded-lg border border-slate-300 bg-transparent px-3 py-2 outline-none focus:border-indigo-500";
 
   return (
-    <div className="mt-8 grid gap-8 lg:grid-cols-3">
-      <form onSubmit={submit} className="space-y-3 self-start rounded-2xl bg-surface p-5 ring-1 ring-slate-200 lg:sticky lg:top-20">
-        <h2 className="font-semibold text-slate-900">{editing !== null ? "Sửa từ" : "Thêm từ mới"}</h2>
-        {editing === null && (
-          <div className="flex gap-1 rounded-xl bg-slate-100 p-1 text-sm">
-            {(Object.keys(LANGUAGES) as Language[]).map((l) => (
-              <button
-                type="button"
-                key={l}
-                onClick={() => setForm((f) => ({ ...f, language: l }))}
-                className={`flex-1 rounded-lg px-2 py-1.5 font-medium ${form.language === l ? "bg-surface text-indigo-700 shadow-sm" : "text-slate-500"}`}
-              >
-                {LANGUAGES[l].flag} {LANGUAGES[l].label}
-              </button>
-            ))}
-          </div>
-        )}
-        <input className={input} required maxLength={200} placeholder="Từ / cụm từ, VD: die Verspätung" value={form.term} onChange={(e) => setForm({ ...form, term: e.target.value })} />
-        <div className="flex gap-2">
-          <input className={input} placeholder="Nghĩa tiếng Việt" value={form.meaning} onChange={(e) => setForm({ ...form, meaning: e.target.value })} />
-          <button type="button" onClick={suggestMeaning} disabled={busy || !form.term.trim()} className="shrink-0 rounded-lg px-3 text-sm text-indigo-700 ring-1 ring-indigo-200 hover:bg-indigo-50 disabled:opacity-40">
-            🪄 Dịch
-          </button>
-        </div>
-        <textarea className={`${input} h-16 text-sm`} placeholder="Câu ví dụ (tuỳ chọn)" value={form.example} onChange={(e) => setForm({ ...form, example: e.target.value })} />
-        <ImagePicker
-          url={imageUrl}
-          label="Thêm ảnh minh hoạ"
-          onChange={(key, url) => {
-            setForm((f) => ({ ...f, imageKey: key }));
-            setImageUrl(url);
-          }}
-        />
-        {msg && <p className="text-sm text-red-600">{msg}</p>}
-        <div className="flex gap-2">
-          <button disabled={busy} className="rounded-lg bg-indigo-600 px-4 py-2 font-semibold text-white hover:bg-indigo-500 disabled:opacity-60">
-            {editing !== null ? "Lưu" : "Thêm vào Pocket"}
-          </button>
-          {editing !== null && (
-            <button
-              type="button"
-              onClick={() => {
-                setEditing(null);
-                setForm(emptyForm(form.language));
-                setImageUrl("");
-              }}
-              className="rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100"
-            >
-              Huỷ
-            </button>
-          )}
-        </div>
-        <div className="border-t border-slate-100 pt-3 text-sm">
+    <section className="mt-8">
+      <div className="flex flex-wrap items-center gap-2">
+        <input className={`${input} max-w-xs`} placeholder="Tìm từ hoặc nghĩa…" value={query} onChange={(e) => setQuery(e.target.value)} />
+        <select value={lang} onChange={(e) => setLang(e.target.value as Language | "")} className="rounded-lg border border-slate-300 bg-transparent px-3 py-2">
+          <option value="">Mọi ngôn ngữ</option>
+          {(Object.keys(LANGUAGES) as Language[]).map((l) => (
+            <option key={l} value={l}>
+              {LANGUAGES[l].flag} {LANGUAGES[l].label}
+            </option>
+          ))}
+        </select>
+        <div className="ml-auto text-sm">
           <SpeedControl compact rate={rate} onChange={setRate} />
         </div>
-      </form>
-
-      <section className="lg:col-span-2">
-        <div className="flex flex-wrap gap-2">
-          <input className={`${input} max-w-xs`} placeholder="Tìm từ hoặc nghĩa…" value={query} onChange={(e) => setQuery(e.target.value)} />
-          <select value={lang} onChange={(e) => setLang(e.target.value as Language | "")} className="rounded-lg border border-slate-300 bg-transparent px-3 py-2">
-            <option value="">Mọi ngôn ngữ</option>
-            {(Object.keys(LANGUAGES) as Language[]).map((l) => (
-              <option key={l} value={l}>
-                {LANGUAGES[l].flag} {LANGUAGES[l].label}
-              </option>
-            ))}
-          </select>
-        </div>
-        {entries.length === 0 && <p className="mt-6 text-slate-500">Chưa có từ nào. Thêm từ ở bên trái.</p>}
-        <ul className="mt-4 space-y-2">
+      </div>
+      {entries.length === 0 && <p className="mt-6 text-slate-500">Chưa có từ nào. Bấm ＋ Thêm từ để thêm từ đầu tiên.</p>}
+      <ul className="mt-4 grid gap-2 xl:grid-cols-2">
           {visible.map((v) => {
             const isDue = new Date(v.dueAt).getTime() <= Date.now();
             return (
@@ -499,7 +526,7 @@ function Words({
                       ✨ Ảnh
                     </button>
                   )}
-                  <button onClick={() => startEdit(v)} className="rounded px-2 py-1 text-xs text-slate-500 hover:bg-slate-100">
+                  <button onClick={() => onEdit(v)} className="rounded px-2 py-1 text-xs text-slate-500 hover:bg-slate-100">
                     Sửa
                   </button>
                   <button onClick={() => remove(v)} className="rounded px-2 py-1 text-xs text-red-500 hover:bg-red-50">
@@ -509,9 +536,8 @@ function Words({
               </li>
             );
           })}
-        </ul>
-      </section>
-    </div>
+      </ul>
+    </section>
   );
 }
 

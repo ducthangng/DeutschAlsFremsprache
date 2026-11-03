@@ -69,7 +69,7 @@ Muốn chạy thử API cùng Postgres trên máy: `make docker`. Cần đặt c
    - Mỗi câu có nghĩa tiếng Việt: ở dưới câu đang luyện và trong cột kịch bản. Nếu đã ghi nghĩa sau `|` thì app dùng nghĩa đó, nếu chưa thì dùng máy dịch.
    - **Bôi đen hoặc nhấp đúp** vào từ (trong câu đang luyện hoặc trong kịch bản) để mở popup: 🔊 nghe lại, 🐢 nghe chậm, 📖 xem nghĩa, ＋ lưu vào Vocabulary Pocket. Câu chứa từ đó được lưu làm ví dụ.
    - Dưới kết quả có dòng chi phí, ví dụ: `☁️ 2.1 giây audio · ≈ $0.00116 · 792 ms`. Mỗi bản ghi trong mục *Bản ghi đạt của câu này* cũng hiện chi phí chấm điểm của nó.
-4. **🎒 Vocabulary Pocket (cũ, xem mục 14):** thêm từ (có nút 🪄 dịch tự động), tìm kiếm, sửa, xoá. Bấm **Ôn tập** để học bằng flash card: Space để lật thẻ, phím `1` là chưa nhớ, phím `2` là đã nhớ. Có chế độ đảo chiều Nghĩa → Từ. Lịch ôn theo hộp Leitner: từ đã nhớ được giãn ra 1, 2, 4, 8, 16, 32 ngày; từ quên thì quay về hộp 1 và được hỏi lại sau 10 phút.
+4. **🎒 Vocabulary Pocket (cũ, xem mục 14):** Pocket chỉ chứa những từ bạn **tự thêm**: bấm **＋ Thêm từ** (popup) trên trang Pocket, bôi đen một từ khi luyện, hoặc tự tick từ trong popup *Chọn từ để lưu* sau khi hoàn thành topic. Không có từ nào được thêm tự động. thêm từ (có nút 🪄 dịch tự động), tìm kiếm, sửa, xoá. Bấm **Ôn tập** để học bằng flash card: Space để lật thẻ, phím `1` là chưa nhớ, phím `2` là đã nhớ. Có chế độ đảo chiều Nghĩa → Từ. Lịch ôn theo hộp Leitner: từ đã nhớ được giãn ra 1, 2, 4, 8, 16, 32 ngày; từ quên thì quay về hộp 1 và được hỏi lại sau 10 phút.
 5. **Tạo topic bằng AI** (cột trái của trang *Tạo topic mới*): nhập chủ đề/tình huống, các từ vựng mới, loại nội dung (hội thoại 2 người / độc thoại / từ vựng), trình độ (A1–C2) và số câu, rồi bấm **Generate**. Nội dung sẽ được điền vào form để bạn xem lại và sửa. Chọn những từ muốn thêm vào Pocket, rồi bấm **Tạo topic**. Mỗi lần tạo đều hiện số token và chi phí; mọi lần tạo (kể cả tạo lại) đều được tính vào chi phí của topic.
 6. **Trạng thái topic:** 🔒 Riêng tư / 🌐 Công khai, số lần **hoàn thành** (một lần hoàn thành là khi người học đọc đạt hết các câu của mình trong một buổi luyện) và **tổng chi phí**. Bấm nút *Công khai*/*Ẩn* trên thẻ topic để đổi trạng thái.
 7. **🌐 Topic công khai:** danh sách topic mọi người chia sẻ, có tên người chia sẻ. Người khác luyện với bản ghi và điểm của riêng mình, nhưng không sửa được nội dung. Màn luyện tập có bảng **Chi phí của topic**, chia theo **từng người** (chấm điểm / kịch bản AI / giọng đọc AI).
@@ -88,7 +88,14 @@ Muốn chạy thử API cùng Postgres trên máy: `make docker`. Cần đặt c
 
     Khi xong 10 lượt, hội thoại tự kết thúc, hoặc bạn bấm kết thúc sớm. Bản tổng kết gồm điểm tổng, mục tiêu đạt hay chưa, trình độ thể hiện (CEFR), điểm mạnh, điểm cần cải thiện, và các cụm từ nên học (thêm được vào Pocket chỉ với một nút). Mọi thứ đều được lưu: kịch bản, từng lượt (chữ, bản ghi âm trên S3, điểm, nhận xét), chi phí từng lượt và chi phí tổng chia theo Azure / OpenAI / giọng đọc, số token và số giây audio.
 14. **🎒 Flash card (Vocabulary Pocket):** lịch ôn kiểu SM-2 riêng cho từng từ của từng người, với 4 mức Quên / Khó / Nhớ / Dễ. Mỗi nút hiện thời điểm bạn sẽ gặp lại thẻ (VD: 10 phút, 1 ngày, 8 ngày); phím Space để lật thẻ, phím 1–4 để chấm. Mỗi từ có ảnh: tải lên, kế thừa từ ảnh của câu khi lưu từ trong lúc luyện topic, hoặc bấm ✨ để AI vẽ (khoảng $0.011 mỗi ảnh). Tab *Tổng quan* có vòng mục tiêu hôm nay, số thẻ đến hạn, chuỗi ngày 🔥 (và kỷ lục), tỉ lệ nhớ 30 ngày, số từ đã thuộc, tổng thời gian ôn, thanh mức độ ghi nhớ (mới → đã thuộc), biểu đồ 30 ngày gần nhất và dự báo 7 ngày tới.
-15. **Chi phí:** tổng chi phí tháng này và từ trước đến nay (số lượt chấm, phút audio, chi phí chấm, số ký tự dịch, chi phí dịch), kèm bảng 50 lượt chấm gần nhất.
+15. **📘 Ngữ pháp** (tiếng Đức): nhập chủ điểm ngữ pháp (hoặc chọn gợi ý theo trình độ), trình độ A1–C2, model OpenAI và tick các dạng bài kèm số câu:
+    - 🔘 **Trắc nghiệm** (tối đa 30 câu) và 🔀 **Sắp xếp câu** (tối đa 30 câu; gõ câu hoàn chỉnh vào ô ngay dưới mỗi câu hỏi).
+    - 📖 **Đọc hiểu**: một bài đọc theo độ dài của trình độ, kèm câu hỏi trắc nghiệm (mặc định 10).
+    - 🎧 **Nghe hiểu**: một hội thoại/bài nói, kèm câu hỏi trắc nghiệm và điền từ (mặc định 10). Audio được tạo bằng **Azure Neural TTS** (mỗi người nói một giọng), lưu lên S3 (`tts/azure/…mp3`) và ghi vào `tts_audio`, nên cùng một kịch bản chỉ tạo audio một lần. Không có `AZURE_SPEECH_KEY` thì trình duyệt đọc thay.
+    - ✍️ **Viết**: dịch câu tiếng Anh sang tiếng Đức (mặc định 10 câu). Bấm *Chấm bằng AI* để model của bài chấm từng câu (điểm /10, câu sửa, nhận xét).
+
+    Các phần được soạn song song ở nền (thường mất 30 giây đến 2 phút); trang bài tự cập nhật khi xong. Trắc nghiệm, sắp xếp câu, đọc và nghe được chấm ngay trên trình duyệt (miễn phí). Câu trả lời được lưu tự động để làm tiếp. Mọi lượt gọi OpenAI/Azure được ghi vào trang Chi phí (loại *Ngữ pháp (LLM)* và *Giọng đọc AI*). Danh sách model nằm trong `backend/internal/openai/grammar.go`; giá có đánh dấu ước tính thì nên kiểm tra lại với bảng giá của OpenAI.
+16. **Chi phí:** tổng chi phí tháng này và từ trước đến nay (số lượt chấm, phút audio, chi phí chấm, số ký tự dịch, chi phí dịch), kèm bảng 50 lượt chấm gần nhất.
    - Phím tắt: `Space` để bắt đầu/dừng, `←` `→` để chuyển câu, `Esc` để dừng.
 
 Khi sửa topic, những câu giữ nguyên chữ vẫn còn bản ghi cũ. Câu bị xoá hoặc sửa chữ sẽ mất bản ghi.
@@ -111,6 +118,7 @@ Khi sửa topic, những câu giữ nguyên chữ vẫn còn bản ghi cũ. Câu
 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `S3_ENDPOINT` | trống | Thông tin đăng nhập S3 (trống thì dùng credential chain mặc định); endpoint dùng cho R2/MinIO |
 | `OPENAI_IMAGE_MODEL`, `OPENAI_IMAGE_USD` | `gpt-image-1`, `0.011` | Model vẽ ảnh flash card và đơn giá mỗi ảnh |
 | `AZURE_STT_USD_PER_HOUR` | `1.0` | Đơn giá ghi âm thành chữ (dùng trong mô phỏng) |
+| `AZURE_TTS_USD_PER_MILLION_CHARS` | `15` | Đơn giá Azure Neural TTS cho bài nghe ngữ pháp |
 | `ADMIN_USER_ID` | `1` | Người dùng duy nhất được xem trang Chi phí (`/usage`); những người khác bị chặn ở cả giao diện lẫn API |
 | `PASS_THRESHOLD` | `70` | PronScore tối thiểu để một câu được tính là đạt |
 | `WORD_THRESHOLD` | `60` | Từ có AccuracyScore thấp hơn mức này bị đánh dấu sai |

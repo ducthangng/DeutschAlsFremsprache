@@ -5,8 +5,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgtype"
-
 	"deutschfremsprache/internal/db/gen"
 )
 
@@ -84,9 +82,9 @@ func (s *Store) PlaylistParticipants(ctx context.Context, playlistID int64) ([]*
 
 // ---- topic vocabulary ----
 
-// TopicOwnerVocab is the topic owner's word list for the topic.
-func (s *Store) TopicOwnerVocab(ctx context.Context, topicID int64) ([]VocabEntry, error) {
-	rows, err := s.q.TopicOwnerVocab(ctx, pgtype.Int8{Int64: topicID, Valid: true})
+// TopicVocab is the topic's word list.
+func (s *Store) TopicVocab(ctx context.Context, topicID int64) ([]VocabEntry, error) {
+	rows, err := s.q.TopicVocab(ctx, topicID)
 	if err != nil {
 		return nil, err
 	}

@@ -106,6 +106,7 @@ export default function Layout() {
                   ["/public", "Khám phá"],
                   ["/playlists", "Playlist"],
                   ["/simulations", "Mô phỏng"],
+                  ["/grammar", "Ngữ pháp"],
                   ["/pocket", "Pocket"],
                   ...(user.isAdmin ? [["/activity", "Hoạt động"], ["/usage", "Chi phí"]] : []),
                 ].map(([to, label]) => (

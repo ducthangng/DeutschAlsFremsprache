@@ -23,6 +23,7 @@ type AiUsage struct {
 	CostUsd      float64
 	CreatedAt    time.Time
 	SimulationID pgtype.Int8
+	GrammarSetID pgtype.Int8
 }
 
 type Assessment struct {
@@ -62,6 +63,24 @@ type DictationAttempt struct {
 	Score     float64
 	Passed    bool
 	CreatedAt time.Time
+}
+
+type GrammarSet struct {
+	ID              int64
+	UserID          int64
+	Grammar         string
+	Level           string
+	Model           string
+	Sections        []byte
+	Status          string
+	Error           string
+	Content         []byte
+	AudioKey        string
+	Answers         []byte
+	WritingFeedback []byte
+	CostUsd         float64
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
 }
 
 type Item struct {
@@ -161,6 +180,16 @@ type TopicCompletion struct {
 	TopicID   int64
 	UserID    int64
 	CreatedAt time.Time
+}
+
+type TopicVocab struct {
+	ID       int64
+	TopicID  int64
+	Position int32
+	Term     string
+	Meaning  string
+	Example  string
+	ImageKey string
 }
 
 type Translation struct {

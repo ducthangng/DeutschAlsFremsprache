@@ -13,7 +13,7 @@ import (
 type AIUsage struct {
 	UserID       int64
 	TopicID      *int64
-	Kind         string // script | tts
+	Kind         string // script | tts | image | simulation | grammar
 	Model        string
 	InputTokens  int
 	OutputTokens int
@@ -21,6 +21,7 @@ type AIUsage struct {
 	AudioMs      int
 	CostUSD      float64
 	SimulationID *int64
+	GrammarSetID *int64
 }
 
 // LogAIUsage records a call and returns its id (used to link a script
@@ -28,7 +29,7 @@ type AIUsage struct {
 func (s *Store) LogAIUsage(ctx context.Context, u AIUsage) (int64, error) {
 	return s.q.CreateAIUsage(ctx, gen.CreateAIUsageParams{UserID: u.UserID, TopicID: optInt8(u.TopicID), Kind: u.Kind, Model: u.Model,
 		InputTokens: int32(u.InputTokens), OutputTokens: int32(u.OutputTokens), Chars: int32(u.Chars), AudioMs: int32(u.AudioMs), CostUsd: u.CostUSD,
-		SimulationID: optInt8(u.SimulationID)})
+		SimulationID: optInt8(u.SimulationID), GrammarSetID: optInt8(u.GrammarSetID)})
 }
 
 type AIUsagePeriod struct {

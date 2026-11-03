@@ -30,6 +30,7 @@ type Config struct {
 type Client struct {
 	cfg  Config
 	http *http.Client
+	slow *http.Client // long generations (grammar exercise sets on reasoning models)
 }
 
 func New(cfg Config) *Client {
@@ -37,7 +38,7 @@ func New(cfg Config) *Client {
 		cfg.BaseURL = "https://api.openai.com/v1"
 	}
 	cfg.BaseURL = strings.TrimRight(cfg.BaseURL, "/")
-	return &Client{cfg: cfg, http: &http.Client{Timeout: 90 * time.Second}}
+	return &Client{cfg: cfg, http: &http.Client{Timeout: 90 * time.Second}, slow: &http.Client{Timeout: 6 * time.Minute}}
 }
 
 func (c *Client) Enabled() bool     { return c != nil && c.cfg.APIKey != "" }
@@ -234,6 +235,10 @@ func wavFromPCM(pcm []byte, rate int) []byte {
 }
 
 func (c *Client) post(ctx context.Context, path string, body any) ([]byte, error) {
+	return c.postWith(ctx, c.http, path, body)
+}
+
+func (c *Client) postWith(ctx context.Context, hc *http.Client, path string, body any) ([]byte, error) {
 	b, _ := json.Marshal(body)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.cfg.BaseURL+path, bytes.NewReader(b))
 	if err != nil {
@@ -241,7 +246,7 @@ func (c *Client) post(ctx context.Context, path string, body any) ([]byte, error
 	}
 	req.Header.Set("Authorization", "Bearer "+c.cfg.APIKey)
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := c.http.Do(req)
+	resp, err := hc.Do(req)
 	if err != nil {
 		return nil, err
 	}

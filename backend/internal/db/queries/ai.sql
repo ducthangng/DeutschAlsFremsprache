@@ -1,6 +1,6 @@
 -- name: CreateAIUsage :one
-INSERT INTO ai_usage (user_id, topic_id, kind, model, input_tokens, output_tokens, chars, audio_ms, cost_usd, simulation_id)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+INSERT INTO ai_usage (user_id, topic_id, kind, model, input_tokens, output_tokens, chars, audio_ms, cost_usd, simulation_id, grammar_set_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 RETURNING id;
 
 -- Attach a script generation (made before the topic existed) to the new topic.
