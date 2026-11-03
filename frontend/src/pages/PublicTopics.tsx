@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { PlaylistCard, Row, TopicCard } from "../components/Cards";
 import Spinner from "../components/Spinner";
 import { api, LANGUAGES, type Language, type Playlist, type Topic } from "../lib/api";
 
-/** "Khám phá": public playlists and topics shared by everyone. */
+/** "Xem tất cả" from the home page rows: public playlists and topics shared by everyone. */
 export default function PublicTopics() {
   const [topics, setTopics] = useState<Topic[] | null>(null);
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
@@ -26,7 +27,10 @@ export default function PublicTopics() {
   return (
     <div className="pb-20">
       <div className="px-4 pt-10 sm:px-10">
-        <h1 className="text-3xl font-bold text-slate-900">Khám phá</h1>
+        <Link to="/topics" className="text-sm text-slate-400 hover:text-slate-700">
+          ‹ Trang chủ
+        </Link>
+        <h1 className="mt-2 text-3xl font-bold text-slate-900">Topic & playlist công khai</h1>
         <p className="mt-1 text-slate-500">Playlist và topic do mọi người chia sẻ. Bạn luyện với bản ghi, điểm và tiến độ của riêng mình.</p>
         <div className="mt-6 flex flex-wrap gap-2">
           <input

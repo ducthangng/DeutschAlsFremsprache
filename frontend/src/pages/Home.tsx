@@ -46,7 +46,7 @@ export default function Home() {
       next === "public" &&
       !(await dialog.confirm({
         title: `Chia sẻ "${t.title}"?`,
-        message: "Mọi người sẽ thấy topic này trong mục Khám phá và luyện được với bản ghi của riêng họ. Chỉ bạn sửa được nội dung.",
+        message: "Mọi người sẽ thấy topic này ở hàng Topic công khai trên trang chủ và luyện được với bản ghi của riêng họ. Chỉ bạn sửa được nội dung.",
         confirmText: "Công khai",
       }))
     )
@@ -108,11 +108,9 @@ export default function Home() {
   // No topic or no playlist of their own yet: show public content first.
   const newcomer = mine.length === 0 || playlists.length === 0;
   const othersPublicPlaylists = publicPlaylists.filter((p) => !p.isOwner && !p.following);
-  const english = others.filter((t) => t.language === "en-US");
-  const german = others.filter((t) => t.language === "de-DE");
-  const exploreLink = (
+  const seeAllPublic = (
     <Link to="/public" className="shrink-0 text-sm text-slate-400 hover:text-slate-700">
-      Khám phá ›
+      Xem tất cả ›
     </Link>
   );
 
@@ -125,24 +123,16 @@ export default function Home() {
   );
 
   const publicPlaylistsRow = othersPublicPlaylists.length > 0 && (
-    <Row title="Playlist công khai" subtitle={PLAYLIST_INTRO} action={exploreLink}>
+    <Row title="Playlist công khai" subtitle={PLAYLIST_INTRO} action={seeAllPublic}>
       {othersPublicPlaylists.slice(0, 20).map((p) => (
         <PlaylistCard key={p.id} playlist={p} />
       ))}
     </Row>
   );
 
-  const englishRow = english.length > 0 && (
-    <Row title={<><LanguageBadge language="en-US" /> Topic tiếng Anh công khai</>} action={exploreLink}>
-      {english.slice(0, 20).map((t) => (
-        <TopicCard key={t.id} topic={t} />
-      ))}
-    </Row>
-  );
-
-  const germanRow = german.length > 0 && (
-    <Row title={<><LanguageBadge language="de-DE" /> Topic tiếng Đức công khai</>} action={exploreLink}>
-      {german.slice(0, 20).map((t) => (
+  const publicTopicsRow = others.length > 0 && (
+    <Row title="Topic công khai" subtitle="Do mọi người chia sẻ. Bạn luyện với bản ghi, điểm và tiến độ của riêng mình." action={seeAllPublic}>
+      {others.slice(0, 20).map((t) => (
         <TopicCard key={t.id} topic={t} />
       ))}
     </Row>
@@ -180,14 +170,6 @@ export default function Home() {
     </Row>
   );
 
-  const communityRow = others.length > 0 && (
-    <Row title="Mới từ cộng đồng" action={exploreLink}>
-      {others.slice(0, 20).map((t) => (
-        <TopicCard key={t.id} topic={t} />
-      ))}
-    </Row>
-  );
-
   return (
     <div className="pb-20">
       {hero ? (
@@ -205,9 +187,8 @@ export default function Home() {
       {newcomer ? (
         // Nothing of their own yet: lead with what the community shares.
         <>
+          {publicTopicsRow}
           {publicPlaylistsRow}
-          {englishRow}
-          {germanRow}
           {continuingRow}
           {myPlaylistsRow}
           {myTopicsRow}
@@ -217,7 +198,7 @@ export default function Home() {
           {continuingRow}
           {myPlaylistsRow}
           {myTopicsRow}
-          {communityRow}
+          {publicTopicsRow}
           {publicPlaylistsRow}
         </>
       )}

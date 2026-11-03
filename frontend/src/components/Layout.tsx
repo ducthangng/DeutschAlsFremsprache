@@ -103,7 +103,6 @@ export default function Layout() {
               <>
                 {[
                   ["/topics", "Trang chủ"],
-                  ["/public", "Khám phá"],
                   ["/playlists", "Playlist"],
                   ["/simulations", "Mô phỏng"],
                   ["/grammar", "Ngữ pháp"],

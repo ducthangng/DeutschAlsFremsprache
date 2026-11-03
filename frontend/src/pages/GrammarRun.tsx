@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import SelectionLookup from "../components/SelectionLookup";
 import Spinner from "../components/Spinner";
 import {
   api,
@@ -58,6 +59,7 @@ export default function GrammarRun() {
   const [retrying, setRetrying] = useState(false);
   const dirty = useRef(false);
   const navigate = useNavigate();
+  const [prefs] = usePrefs();
 
   // Load, and poll while the set is being generated.
   useEffect(() => {
@@ -154,6 +156,8 @@ export default function GrammarRun() {
 
   return (
     <div className="mx-auto max-w-4xl px-4 pb-24 pt-8">
+      {/* double-click a German word: listen, meaning, save to the Pocket */}
+      <SelectionLookup language="de-DE" rate={prefs.rate} voiceURI={prefs.voice["de-DE"] || undefined} />
       {back}
       <header className="mt-4">
         <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
@@ -225,7 +229,9 @@ export default function GrammarRun() {
         <Section id="reading" score={sc.reading} checked={!!answers.checked.reading} onCheck={setChecked}>
           <article className="rounded-xl bg-slate-100 p-5">
             <h3 className="text-lg font-semibold text-slate-900">{c.reading.title}</h3>
-            <p className="mt-3 whitespace-pre-line leading-relaxed text-slate-700">{c.reading.passage}</p>
+            <p data-lookup className="mt-3 whitespace-pre-line leading-relaxed text-slate-700 selection:bg-amber-200">
+              {c.reading.passage}
+            </p>
           </article>
           <div className="mt-6">
             <ChoiceList questions={c.reading.questions} answers={answers.reading} checked={!!answers.checked.reading} onAnswer={(i, v) => answer("reading", i, v)} />
@@ -324,7 +330,7 @@ function ChoiceList({
     <ol className="space-y-6">
       {questions.map((q, i) => (
         <li key={i}>
-          <p className="font-medium text-slate-900">
+          <p data-lookup data-sentence={q.question.includes("___") ? "" : q.question} className="font-medium text-slate-900 selection:bg-amber-200">
             <span className="mr-2 text-slate-400">{i + 1}.</span>
             {q.question}
           </p>
@@ -386,7 +392,10 @@ function RearrangeItem({ n, q, value, checked, onChange }: { n: number; q: Rearr
         <Explanation ok={ok}>
           {!ok && (
             <p>
-              Đáp án: <b>{q.answer}</b>
+              Đáp án:{" "}
+              <b data-lookup data-sentence={q.answer}>
+                {q.answer}
+              </b>
               {q.alternatives.length > 0 && <> (hoặc: {q.alternatives.join(" / ")})</>}
             </p>
           )}
@@ -463,7 +472,9 @@ function Listening({
             {listening.segments.map((s, i) => (
               <p key={i}>
                 {s.speaker && <b className="text-slate-900">{s.speaker}: </b>}
-                {s.text}
+                <span data-lookup data-sentence={s.text} className="selection:bg-amber-200">
+                  {s.text}
+                </span>
               </p>
             ))}
           </div>
@@ -474,7 +485,7 @@ function Listening({
         {listening.questions.map((q, i) =>
           q.kind === "choice" ? (
             <li key={i}>
-              <p className="font-medium text-slate-900">
+              <p data-lookup data-sentence={q.question} className="font-medium text-slate-900 selection:bg-amber-200">
                 <span className="mr-2 text-slate-400">{i + 1}.</span>
                 {q.question}
               </p>

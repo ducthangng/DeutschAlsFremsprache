@@ -47,7 +47,7 @@ export default function Playlists() {
           )}
           <h2 className="mb-3 mt-12 text-lg font-semibold text-slate-800">Đang theo dõi</h2>
           {followed.length === 0 ? (
-            <p className="text-slate-500">Theo dõi playlist công khai trong mục Khám phá để thấy tiến độ của bạn ở đây.</p>
+            <p className="text-slate-500">Theo dõi playlist công khai (ở trang chủ, mục Playlist công khai) để thấy tiến độ của bạn ở đây.</p>
           ) : (
             <div className="grid gap-x-4 gap-y-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               {followed.map((p) => (

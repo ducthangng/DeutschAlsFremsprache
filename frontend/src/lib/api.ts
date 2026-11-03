@@ -608,6 +608,10 @@ export interface GrammarRequest {
   level: string;
   model: string;
   sections: GrammarSections;
+  /** CEFR word list to draw vocabulary from ("" = same as level); ignored when `vocabulary` is given. */
+  vocabLevel?: string;
+  /** The learner's own words (from the Pocket) to build the items around. */
+  vocabulary?: string[];
 }
 
 export interface Health {

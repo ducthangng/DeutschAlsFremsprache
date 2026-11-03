@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useDialog } from "../components/Dialog";
 import Spinner from "../components/Spinner";
-import { api, type GrammarModels, type GrammarSection, type GrammarSections, type GrammarSet } from "../lib/api";
+import { api, type GrammarModels, type GrammarSection, type GrammarSections, type GrammarSet, type VocabEntry } from "../lib/api";
 import { formatUsd } from "../lib/format";
 
 const LEVELS = ["A1", "A2", "B1", "B2", "C1", "C2"];
@@ -27,6 +27,9 @@ export const SECTIONS: { key: GrammarSection; icon: string; label: string; hint:
 
 const DEFAULT_COUNTS: GrammarSections = { multipleChoice: 10, rearrange: 10, reading: 10, listening: 10, writing: 10 };
 
+/** At most this many own words go into one set (the API refuses more). */
+const MAX_WORDS = 80;
+
 const price = (v: number) => `$${v < 1 ? v.toFixed(2) : v.toFixed(v % 1 ? 2 : 0)}`;
 
 export function sectionSummary(s: GrammarSections) {
@@ -44,6 +47,11 @@ export default function Grammar() {
   const [model, setModel] = useState("");
   const [counts, setCounts] = useState<GrammarSections>(DEFAULT_COUNTS);
   const [enabled, setEnabled] = useState<Record<GrammarSection, boolean>>({ multipleChoice: true, rearrange: true, reading: true, listening: true, writing: true });
+  // Vocabulary: a CEFR word list ("" = same as level) or words from the Pocket.
+  const [vocabSource, setVocabSource] = useState<"level" | "pocket">("level");
+  const [vocabLevel, setVocabLevel] = useState("");
+  const [pocket, setPocket] = useState<VocabEntry[] | null>(null);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const navigate = useNavigate();
@@ -58,17 +66,38 @@ export default function Grammar() {
       setSets(s);
       if (s[0]) setLevel(s[0].level);
     }, (e) => setError(e.message));
+    api.listVocab().then((v) => {
+      const german = v.filter((x) => x.language === "de-DE").sort((a, b) => (b.createdAt > a.createdAt ? 1 : -1));
+      setPocket(german);
+      setPicked(new Set(german.slice(0, 30).map((x) => x.term)));
+    }, () => setPocket([]));
   }, []);
 
   const sections = Object.fromEntries(SECTIONS.map((x) => [x.key, enabled[x.key] ? counts[x.key] : 0])) as GrammarSections;
   const total = Object.values(sections).reduce((a, b) => a + b, 0);
   const chosen = meta?.models.find((m) => m.id === model);
+  const ownWords = vocabSource === "pocket";
+
+  function togglePick(term: string) {
+    setPicked((cur) => {
+      const next = new Set(cur);
+      if (next.has(term)) next.delete(term);
+      else if (next.size < MAX_WORDS) next.add(term);
+      return next;
+    });
+  }
 
   async function create() {
     setBusy(true);
     setError("");
     try {
-      const g = await api.createGrammarSet({ grammar: grammar.trim(), level, model, sections });
+      const g = await api.createGrammarSet({
+        grammar: grammar.trim(),
+        level,
+        model,
+        sections,
+        ...(ownWords ? { vocabulary: [...picked] } : { vocabLevel: vocabLevel || level }),
+      });
       navigate(`/grammar/${g.id}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Không tạo được bài");
@@ -93,18 +122,15 @@ export default function Grammar() {
           Nhập chủ điểm ngữ pháp và trình độ, chọn dạng bài và số câu. AI soạn trắc nghiệm, sắp xếp câu, bài đọc, bài nghe (giọng đọc Microsoft) và bài dịch Anh → Đức.
         </p>
 
-        <div className="mt-8 space-y-5">
-          <div>
-            <label className="text-sm font-medium text-white/70" htmlFor="grammar">
-              Chủ điểm ngữ pháp
-            </label>
+        <div className="mt-8 max-w-4xl space-y-8">
+          <Field label="Chủ điểm ngữ pháp" htmlFor="grammar">
             <input
               id="grammar"
               value={grammar}
               onChange={(e) => setGrammar(e.target.value)}
               maxLength={200}
               placeholder="VD: Konjunktiv II, Relativsätze mit Präpositionen, Perfekt…"
-              className={`${field} mt-1.5 w-full max-w-2xl px-4 placeholder:text-white/30`}
+              className={`${field} w-full px-4 placeholder:text-white/30`}
             />
             <div className="mt-2 flex flex-wrap gap-2">
               {SUGGESTIONS[level].map((g) => (
@@ -117,31 +143,17 @@ export default function Grammar() {
                 </button>
               ))}
             </div>
-          </div>
+          </Field>
 
-          <div className="flex flex-wrap items-end gap-6">
-            <div>
-              <p className="text-sm font-medium text-white/70">Trình độ</p>
-              <div className="mt-1.5 flex gap-1 rounded-xl bg-white/5 p-1">
-                {LEVELS.map((l) => (
-                  <button
-                    key={l}
-                    onClick={() => setLevel(l)}
-                    className={`rounded-lg px-3 py-1.5 text-sm font-medium ${level === l ? "bg-white text-black" : "text-white/60 hover:text-white"}`}
-                  >
-                    {l}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div className="min-w-64 flex-1">
-              <label className="text-sm font-medium text-white/70" htmlFor="model">
-                Model
-              </label>
-              <select id="model" value={model} onChange={(e) => setModel(e.target.value)} className={`${field} mt-1.5 block w-full max-w-md`}>
+          <div className="grid gap-6 md:grid-cols-2">
+            <Field label="Trình độ">
+              <LevelPicker value={level} onChange={setLevel} />
+            </Field>
+            <Field label="Model" htmlFor="model">
+              <select id="model" value={model} onChange={(e) => setModel(e.target.value)} className={`${field} block h-[42px] w-full`}>
                 {meta?.models.map((m) => (
                   <option key={m.id} value={m.id} className="bg-[#15161f]">
-                    {m.label} ({m.id}): {m.note}
+                    {m.label}: {m.note}
                   </option>
                 ))}
               </select>
@@ -151,29 +163,97 @@ export default function Grammar() {
                   {price(chosen.usdPerMInput)} / {price(chosen.usdPerMOutput)} mỗi 1M token vào / ra{chosen.priceEstimated && " (giá ước tính)"}
                 </p>
               )}
-            </div>
+            </Field>
           </div>
 
-          <div>
-            <p className="text-sm font-medium text-white/70">Dạng bài và số câu</p>
-            <ul className="mt-2 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+          <Field label="Từ vựng dùng trong bài">
+            <div className="inline-flex gap-1 rounded-xl bg-white/5 p-1">
+              {(
+                [
+                  ["level", "Theo khung A1–C2"],
+                  ["pocket", "Từ vựng của tôi"],
+                ] as const
+              ).map(([k, label]) => (
+                <button
+                  key={k}
+                  onClick={() => setVocabSource(k)}
+                  className={`whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium sm:px-4 ${vocabSource === k ? "bg-white text-black" : "text-white/60 hover:text-white"}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            {ownWords ? (
+              <div className="mt-3 rounded-xl bg-white/[0.03] p-4 ring-1 ring-white/10">
+                {!pocket ? (
+                  <Spinner className="h-5 w-5" />
+                ) : pocket.length === 0 ? (
+                  <p className="text-sm text-white/50">
+                    Pocket chưa có từ tiếng Đức nào.{" "}
+                    <Link to="/pocket" className="text-indigo-300 underline hover:text-indigo-200">
+                      Thêm từ vào Pocket
+                    </Link>{" "}
+                    hoặc dùng từ vựng theo khung.
+                  </p>
+                ) : (
+                  <>
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-white/50">
+                      <span>
+                        Đã chọn {picked.size}/{Math.min(pocket.length, MAX_WORDS)} từ · AI sẽ đặt câu xoay quanh các từ này
+                      </span>
+                      <span className="flex gap-3">
+                        <button onClick={() => setPicked(new Set(pocket.slice(0, MAX_WORDS).map((x) => x.term)))} className="hover:text-white">
+                          Chọn tất cả
+                        </button>
+                        <button onClick={() => setPicked(new Set())} className="hover:text-white">
+                          Bỏ chọn
+                        </button>
+                      </span>
+                    </div>
+                    <div className="mt-3 flex max-h-48 flex-wrap gap-2 overflow-y-auto">
+                      {pocket.map((v) => {
+                        const on = picked.has(v.term);
+                        return (
+                          <button
+                            key={v.id}
+                            onClick={() => togglePick(v.term)}
+                            title={v.meaning}
+                            className={`rounded-full px-3 py-1 text-xs ring-1 ${on ? "bg-indigo-500/90 text-white ring-indigo-400" : "text-white/60 ring-white/15 hover:text-white"}`}
+                          >
+                            {v.term}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </>
+                )}
+              </div>
+            ) : (
+              <div className="mt-3 grid gap-6 md:grid-cols-2">
+                <div>
+                  <LevelPicker value={vocabLevel || level} onChange={setVocabLevel} />
+                  <p className="mt-1 text-xs text-white/40">Mặc định theo trình độ đã chọn ở trên.</p>
+                </div>
+              </div>
+            )}
+          </Field>
+
+          <Field label="Dạng bài và số câu">
+            <ul className="divide-y divide-white/5 overflow-hidden rounded-xl ring-1 ring-white/10">
               {SECTIONS.map((x) => {
                 const on = enabled[x.key];
                 return (
-                  <li key={x.key} className={`flex items-center gap-3 rounded-xl px-4 py-3 ring-1 transition ${on ? "bg-white/10 ring-white/20" : "bg-white/[0.03] ring-white/5"}`}>
+                  <li key={x.key} className={`flex items-center gap-4 px-4 py-3 transition ${on ? "bg-white/[0.07]" : "bg-white/[0.02]"}`}>
                     <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-3">
                       <input
                         type="checkbox"
                         checked={on}
                         onChange={(e) => setEnabled((s) => ({ ...s, [x.key]: e.target.checked }))}
-                        className="h-4 w-4 accent-indigo-500"
+                        className="h-4 w-4 shrink-0 accent-indigo-500"
                       />
-                      <span className="min-w-0">
-                        <span className={`block font-medium ${on ? "text-white" : "text-white/50"}`}>
-                          {x.icon} {x.label}
-                        </span>
-                        <span className="block text-xs text-white/40">{x.hint}</span>
-                      </span>
+                      <span className="w-6 shrink-0 text-center">{x.icon}</span>
+                      <span className={`min-w-0 font-medium sm:w-44 sm:shrink-0 ${on ? "text-white" : "text-white/50"}`}>{x.label}</span>
+                      <span className="hidden min-w-0 truncate text-sm text-white/40 sm:block">{x.hint}</span>
                     </label>
                     <input
                       type="number"
@@ -186,8 +266,9 @@ export default function Grammar() {
                         setCounts((c) => ({ ...c, [x.key]: Math.min(meta?.limits[x.key] ?? 30, Math.max(1, n || 1)) }));
                       }}
                       aria-label={`Số câu ${x.label}`}
-                      className="w-16 rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-right text-white disabled:opacity-30"
+                      className="w-16 shrink-0 rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-right text-white disabled:opacity-30"
                     />
+                    <span className="hidden w-6 shrink-0 text-xs text-white/40 sm:block">câu</span>
                   </li>
                 );
               })}
@@ -195,12 +276,12 @@ export default function Grammar() {
             {!meta?.listeningAudio && meta && enabled.listening && (
               <p className="mt-2 text-xs text-amber-500">Máy chủ chưa có AZURE_SPEECH_KEY: bài nghe sẽ do trình duyệt đọc.</p>
             )}
-          </div>
+          </Field>
 
           <div className="flex flex-wrap items-center gap-4">
             <button
               onClick={create}
-              disabled={busy || !meta?.enabled || grammar.trim().length < 2 || total === 0 || !model}
+              disabled={busy || !meta?.enabled || grammar.trim().length < 2 || total === 0 || !model || (ownWords && picked.size === 0)}
               className="flex items-center gap-2 rounded-xl bg-white px-6 py-2.5 font-semibold text-black hover:bg-white/85 disabled:opacity-50"
             >
               {busy ? (
@@ -250,6 +331,33 @@ export default function Grammar() {
           </li>
         ))}
       </ul>
+    </div>
+  );
+}
+
+function Field({ label, htmlFor, children }: { label: string; htmlFor?: string; children: ReactNode }) {
+  return (
+    <div>
+      <label htmlFor={htmlFor} className="mb-1.5 block text-sm font-medium text-white/70">
+        {label}
+      </label>
+      {children}
+    </div>
+  );
+}
+
+function LevelPicker({ value, onChange }: { value: string; onChange: (level: string) => void }) {
+  return (
+    <div className="grid w-full max-w-md grid-cols-6 gap-1 rounded-xl bg-white/5 p-1">
+      {LEVELS.map((l) => (
+        <button
+          key={l}
+          onClick={() => onChange(l)}
+          className={`rounded-lg py-1.5 text-sm font-medium ${value === l ? "bg-white text-black" : "text-white/60 hover:text-white"}`}
+        >
+          {l}
+        </button>
+      ))}
     </div>
   );
 }

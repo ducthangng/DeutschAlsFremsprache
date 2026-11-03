@@ -132,6 +132,10 @@ type GrammarRequest struct {
 	Grammar  string
 	Level    string
 	Sections GrammarSections
+	// Vocabulary to build the items from: the learner's own words, or else
+	// the CEFR word list of VocabLevel ("" = same as Level).
+	VocabLevel string
+	Vocabulary []string
 }
 
 // ---- schemas ----
@@ -213,8 +217,20 @@ const grammarSystem = "You are an experienced teacher of German as a foreign lan
 	"Explanations are written in Vietnamese."
 
 func grammarIntro(r GrammarRequest) string {
-	return fmt.Sprintf("Grammar point: %s\nLearner level: CEFR %s\nEvery item must practise this grammar point; vary vocabulary, situations and sentence patterns, and never repeat an item.\n",
-		r.Grammar, r.Level)
+	return fmt.Sprintf("Grammar point: %s\nLearner level: CEFR %s\n%sEvery item must practise this grammar point; vary situations and sentence patterns, and never repeat an item.\n",
+		r.Grammar, r.Level, vocabBrief(r))
+}
+
+func vocabBrief(r GrammarRequest) string {
+	if len(r.Vocabulary) > 0 {
+		return "Vocabulary: build the items around these words from the learner's own list, using as many of them as fit naturally " +
+			"(inflect them as the sentence needs); other words should stay simple: " + strings.Join(r.Vocabulary, "; ") + "\n"
+	}
+	level := r.VocabLevel
+	if level == "" {
+		level = r.Level
+	}
+	return fmt.Sprintf("Vocabulary: use words from the CEFR %s word list (Goethe/telc %s Wortschatz), varied across items.\n", level, level)
 }
 
 // GrammarCore writes the title, the explanation and the multiple-choice questions.

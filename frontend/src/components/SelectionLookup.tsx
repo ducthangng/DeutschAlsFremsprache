@@ -20,7 +20,8 @@ interface Selection {
 /**
  * Highlight (or double-click) words inside any element marked `data-lookup`
  * to get a popup: listen to them, see the Vietnamese meaning, or save them to
- * the Vocabulary Pocket. `data-sentence` on that element is used as the example.
+ * the Vocabulary Pocket. `data-sentence` on that element is used as the example;
+ * without it, the sentence around the selection is.
  */
 export default function SelectionLookup({ language, rate, voiceURI, topicId }: Props) {
   const [sel, setSel] = useState<Selection | null>(null);
@@ -40,7 +41,7 @@ export default function SelectionLookup({ language, rate, voiceURI, topicId }: P
       const rect = s.getRangeAt(0).getBoundingClientRect();
       setSel({
         text: text.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "") || text, // trim surrounding punctuation
-        sentence: host.dataset.sentence ?? "",
+        sentence: host.dataset.sentence ?? sentenceAt(host, s.getRangeAt(0)),
         imageKey: host.dataset.image ?? "",
         x: rect.left + rect.width / 2,
         y: rect.top,
@@ -135,7 +136,7 @@ export default function SelectionLookup({ language, rate, voiceURI, topicId }: P
           📖 Nghĩa
         </button>
         <button className={`${btn} text-indigo-700`} onClick={save} disabled={busy}>
-          ＋ Pocket
+          ＋ Thêm vào Pocket
         </button>
       </div>
       {busy && <p className="mt-2 text-xs text-slate-400">Đang xử lý…</p>}
@@ -143,4 +144,16 @@ export default function SelectionLookup({ language, rate, voiceURI, topicId }: P
       {status && <p className="mt-2 text-xs text-slate-600">{status}</p>}
     </div>
   );
+}
+
+/** The sentence of host's text that contains the start of range. */
+function sentenceAt(host: HTMLElement, range: Range): string {
+  const before = document.createRange();
+  before.setStart(host, 0);
+  before.setEnd(range.startContainer, range.startOffset);
+  const text = host.textContent ?? "";
+  const at = before.toString().length;
+  const start = Math.max(...[".", "!", "?", "\n"].map((c) => text.lastIndexOf(c, at - 1))) + 1;
+  const end = text.slice(at).search(/[.!?\n]/);
+  return text.slice(start, end < 0 ? undefined : at + end + 1).replace(/\s+/g, " ").trim();
 }

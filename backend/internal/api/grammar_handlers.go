@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"slices"
@@ -23,6 +24,12 @@ import (
 var grammarLimits = openai.GrammarSections{MultipleChoice: 30, Rearrange: 30, Reading: 15, Listening: 15, Writing: 20}
 
 const maxGeneratingGrammar = 2 // per user at a time
+
+// Own-vocabulary limits for one exercise set.
+const (
+	maxGrammarWords   = 80
+	maxGrammarWordLen = 80
+)
 
 func (s *Server) grammarModels(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -79,11 +86,20 @@ func (s *Server) createGrammarSet(w http.ResponseWriter, r *http.Request) {
 		Level    string                 `json:"level"`
 		Model    string                 `json:"model"`
 		Sections openai.GrammarSections `json:"sections"`
+		// Either a CEFR word list or the learner's own words (from the Pocket).
+		VocabLevel string   `json:"vocabLevel"`
+		Vocabulary []string `json:"vocabulary"`
 	}
 	if !decodeJSON(w, r, &in) {
 		return
 	}
 	in.Grammar = strings.TrimSpace(in.Grammar)
+	var words []string
+	for _, v := range in.Vocabulary {
+		if v = strings.TrimSpace(v); v != "" && utf8.RuneCountInString(v) <= maxGrammarWordLen && !slices.Contains(words, v) {
+			words = append(words, v)
+		}
+	}
 	m, okModel := openai.GrammarModel(in.Model)
 	sec, lim := in.Sections, grammarLimits
 	inRange := func(n, max int) bool { return n >= 0 && n <= max }
@@ -96,6 +112,12 @@ func (s *Server) createGrammarSet(w http.ResponseWriter, r *http.Request) {
 		return
 	case !okModel:
 		writeError(w, http.StatusBadRequest, "model không được hỗ trợ")
+		return
+	case in.VocabLevel != "" && !slices.Contains(levels, in.VocabLevel):
+		writeError(w, http.StatusBadRequest, "khung từ vựng không hợp lệ")
+		return
+	case len(words) > maxGrammarWords:
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("chọn tối đa %d từ vựng", maxGrammarWords))
 		return
 	case !inRange(sec.MultipleChoice, lim.MultipleChoice) || !inRange(sec.Rearrange, lim.Rearrange) || !inRange(sec.Reading, lim.Reading) ||
 		!inRange(sec.Listening, lim.Listening) || !inRange(sec.Writing, lim.Writing):
@@ -124,7 +146,8 @@ func (s *Server) createGrammarSet(w http.ResponseWriter, r *http.Request) {
 		writeStoreError(w, err)
 		return
 	}
-	go s.generateGrammar(uid, g.ID, m, openai.GrammarRequest{Grammar: in.Grammar, Level: in.Level, Sections: sec})
+	go s.generateGrammar(uid, g.ID, m, openai.GrammarRequest{Grammar: in.Grammar, Level: in.Level, Sections: sec,
+		VocabLevel: in.VocabLevel, Vocabulary: words})
 	s.writeGrammarSet(w, r, g, http.StatusCreated)
 }
 

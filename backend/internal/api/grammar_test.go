@@ -53,6 +53,13 @@ func fakeGrammarChat(t *testing.T) *httptest.Server {
 			http.Error(w, "unexpected", 500)
 			return
 		}
+		// Exercises are built around the learner's own words (sent with the set below).
+		if strings.HasPrefix(string(m[1]), "grammar_") && !strings.Contains(string(body), "Kaffee; Reise") {
+			t.Errorf("%s prompt lacks the deduplicated words", m[1])
+		}
+		if strings.HasPrefix(string(m[1]), "grammar_") && !strings.Contains(string(body), "own list") {
+			t.Errorf("%s prompt lacks the learner's words", m[1])
+		}
 		json.NewEncoder(w).Encode(map[string]any{
 			"choices": []any{map[string]any{"message": map[string]any{"content": answers[string(m[1])]}, "finish_reason": "stop"}},
 			"usage":   map[string]int{"prompt_tokens": 1000, "completion_tokens": 500},
@@ -89,6 +96,20 @@ func TestGrammarSets(t *testing.T) {
 		"no sections": req(openai.GrammarSections{}, "gpt-5-mini"),
 		"bad model":   req(all, "gpt-3.5-turbo-0125"),
 		"too many":    req(openai.GrammarSections{MultipleChoice: 31}, "gpt-5-mini"),
+		"bad vocab level": func() map[string]any {
+			b := req(all, "gpt-5-mini")
+			b["vocabLevel"] = "D1"
+			return b
+		}(),
+		"too many words": func() map[string]any {
+			b := req(all, "gpt-5-mini")
+			words := make([]string, maxGrammarWords+1)
+			for i := range words {
+				words[i] = "Wort" + itoa(int64(i))
+			}
+			b["vocabulary"] = words
+			return b
+		}(),
 	} {
 		if code := c.json("POST", "/api/grammar", body, nil); code != 400 {
 			t.Errorf("%s: %d", name, code)
@@ -96,7 +117,9 @@ func TestGrammarSets(t *testing.T) {
 	}
 
 	var g store.GrammarSet
-	if code := c.json("POST", "/api/grammar", req(all, "gpt-5-mini"), &g); code != 201 || g.Status != "generating" {
+	withWords := req(all, "gpt-5-mini")
+	withWords["vocabulary"] = []string{" Kaffee ", "Reise", "Kaffee", ""} // trimmed, deduplicated
+	if code := c.json("POST", "/api/grammar", withWords, &g); code != 201 || g.Status != "generating" {
 		t.Fatalf("create: %d %+v", code, g)
 	}
 	path := "/api/grammar/" + itoa(g.ID)
