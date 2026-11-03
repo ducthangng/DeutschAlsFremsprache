@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import ImagePicker from "../components/ImagePicker";
 import Spinner from "../components/Spinner";
-import { api, LANGUAGES, type GenerateResult, type Language, type SentenceLength, type SpeechType, type TopicInput, type TopicKind, type Visibility } from "../lib/api";
+import { api, GLOSS, LANGUAGES, type GenerateResult, type Language, type SentenceLength, type SpeechType, type TopicInput, type TopicKind, type Visibility } from "../lib/api";
 import { formatUsd } from "../lib/format";
 import { useDialog } from "../components/Dialog";
 
@@ -189,7 +189,7 @@ export default function TopicForm() {
       <div className="space-y-4 rounded-2xl bg-gradient-to-b from-indigo-50 to-surface p-5 ring-1 ring-indigo-100 lg:sticky lg:top-20">
         <div>
           <h2 className="font-semibold">✨ Tạo bằng AI</h2>
-          <p className="mt-0.5 text-xs text-slate-500">Mô tả tình huống và từ vựng cần học, AI sẽ viết nội dung kèm nghĩa tiếng Việt. Bạn xem lại và sửa trước khi tạo topic.</p>
+          <p className="mt-0.5 text-xs text-slate-500">Mô tả tình huống và từ vựng cần học, AI sẽ viết nội dung kèm bản dịch {GLOSS[form.language]}. Bạn xem lại và sửa trước khi tạo topic.</p>
         </div>
         <div className="flex gap-1 rounded-xl bg-slate-100 p-1">
           {(Object.keys(LANGUAGES) as Language[]).map((l) => (

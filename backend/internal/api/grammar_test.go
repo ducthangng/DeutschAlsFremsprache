@@ -44,7 +44,7 @@ func fakeGrammarChat(t *testing.T) *httptest.Server {
 			ReasoningEffort string `json:"reasoning_effort"`
 		}
 		json.Unmarshal(body, &req)
-		if req.Model != "gpt-5-mini" || req.ReasoningEffort != "low" {
+		if req.Model != "gpt-5.1" || req.ReasoningEffort != "low" {
 			t.Errorf("model %q, reasoning %q", req.Model, req.ReasoningEffort)
 		}
 		m := nameRE.FindSubmatch(body)
@@ -84,7 +84,7 @@ func TestGrammarSets(t *testing.T) {
 		DefaultModel string
 		Enabled      bool
 	}
-	if c.json("GET", "/api/grammar/models", nil, &models); !models.Enabled || models.DefaultModel != "gpt-5-mini" || len(models.Models) < 5 {
+	if c.json("GET", "/api/grammar/models", nil, &models); !models.Enabled || models.DefaultModel != "gpt-5.1" || len(models.Models) < 3 {
 		t.Fatalf("models: %+v", models)
 	}
 
@@ -93,16 +93,17 @@ func TestGrammarSets(t *testing.T) {
 	}
 	all := openai.GrammarSections{MultipleChoice: 5, Rearrange: 3, Reading: 2, Listening: 4, Writing: 2}
 	for name, body := range map[string]map[string]any{
-		"no sections": req(openai.GrammarSections{}, "gpt-5-mini"),
+		"no sections": req(openai.GrammarSections{}, "gpt-5.1"),
 		"bad model":   req(all, "gpt-3.5-turbo-0125"),
-		"too many":    req(openai.GrammarSections{MultipleChoice: 31}, "gpt-5-mini"),
+		"weak model":  req(all, "gpt-5-nano"), // only strong models design questions
+		"too many":    req(openai.GrammarSections{MultipleChoice: 31}, "gpt-5.1"),
 		"bad vocab level": func() map[string]any {
-			b := req(all, "gpt-5-mini")
+			b := req(all, "gpt-5.1")
 			b["vocabLevel"] = "D1"
 			return b
 		}(),
 		"too many words": func() map[string]any {
-			b := req(all, "gpt-5-mini")
+			b := req(all, "gpt-5.1")
 			words := make([]string, maxGrammarWords+1)
 			for i := range words {
 				words[i] = "Wort" + itoa(int64(i))
@@ -117,7 +118,7 @@ func TestGrammarSets(t *testing.T) {
 	}
 
 	var g store.GrammarSet
-	withWords := req(all, "gpt-5-mini")
+	withWords := req(all, "gpt-5.1")
 	withWords["vocabulary"] = []string{" Kaffee ", "Reise", "Kaffee", ""} // trimmed, deduplicated
 	if code := c.json("POST", "/api/grammar", withWords, &g); code != 201 || g.Status != "generating" {
 		t.Fatalf("create: %d %+v", code, g)
@@ -136,6 +137,10 @@ func TestGrammarSets(t *testing.T) {
 		t.Errorf("core: %+v", content)
 	case len(content.MultipleChoice) != 1: // the broken question is dropped
 		t.Errorf("multiple choice: %+v", content.MultipleChoice)
+	case content.MultipleChoice[0].Options[content.MultipleChoice[0].Answer] != "hätte": // options are shuffled, the answer follows
+		t.Errorf("answer lost in shuffle: %+v", content.MultipleChoice[0])
+	case content.Listening != nil && len(content.Listening.Questions) > 0 && content.Listening.Questions[0].Options[content.Listening.Questions[0].Answer] != "Kaffee":
+		t.Errorf("listening answer lost in shuffle: %+v", content.Listening.Questions[0])
 	case len(content.Rearrange) != 1 || strings.Join(content.Rearrange[0].Fragments, " ") == "Ich würde gern kommen":
 		t.Errorf("rearrange not scrambled: %+v", content.Rearrange)
 	case content.Reading == nil || len(content.Reading.Questions) != 1:
@@ -146,7 +151,7 @@ func TestGrammarSets(t *testing.T) {
 		t.Errorf("writing/errors: %+v %v", content.Writing, content.Errors)
 	case g.AudioURL != "": // no Azure key: the browser reads the script
 		t.Errorf("audio without azure: %q", g.AudioURL)
-	case math.Abs(g.CostUSD-5*0.00125) > 1e-9: // 5 calls of 1000 in + 500 out tokens on gpt-5-mini
+	case math.Abs(g.CostUSD-5*0.00625) > 1e-9: // 5 calls of 1000 in + 500 out tokens on gpt-5.1
 		t.Errorf("cost: %v", g.CostUSD)
 	}
 
@@ -175,7 +180,7 @@ func TestGrammarSets(t *testing.T) {
 
 	var list []store.GrammarSet
 	c.json("GET", "/api/grammar", nil, &list)
-	if len(list) != 1 || list[0].Title != "Konjunktiv II" || !list[0].Started || math.Abs(list[0].CostUSD-6*0.00125) > 1e-9 {
+	if len(list) != 1 || list[0].Title != "Konjunktiv II" || !list[0].Started || math.Abs(list[0].CostUSD-6*0.00625) > 1e-9 {
 		t.Errorf("list: %+v", list)
 	}
 	if code := c.json("DELETE", path, nil, nil); code != 204 {

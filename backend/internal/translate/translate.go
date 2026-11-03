@@ -18,7 +18,7 @@ import (
 )
 
 type Translator interface {
-	// Translate translates texts from one language code ("de", "en") to another ("vi").
+	// Translate translates texts from one language code ("de", "en") to another ("en", "vi").
 	// The result has the same length and order as texts.
 	Translate(ctx context.Context, from, to string, texts []string) ([]string, error)
 	Name() string

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import { useDialog } from "../components/Dialog";
 import SelectionLookup from "../components/SelectionLookup";
 import Spinner from "../components/Spinner";
 import {
@@ -15,7 +16,7 @@ import {
 import { speak, type Playback } from "../lib/audio";
 import { formatUsd } from "../lib/format";
 import { usePrefs } from "../lib/prefs";
-import { SECTIONS, sectionSummary } from "./Grammar";
+import { confirmDeleteGrammar, SECTIONS, sectionSummary } from "./Grammar";
 
 const EMPTY: GrammarAnswers = { multipleChoice: {}, rearrange: {}, reading: {}, listening: {}, writing: {}, checked: {} };
 
@@ -60,6 +61,7 @@ export default function GrammarRun() {
   const dirty = useRef(false);
   const navigate = useNavigate();
   const [prefs] = usePrefs();
+  const dialog = useDialog();
 
   // Load, and poll while the set is being generated.
   useEffect(() => {
@@ -102,7 +104,10 @@ export default function GrammarRun() {
     if (!set) return;
     setRetrying(true);
     try {
-      const g = await api.createGrammarSet({ grammar: set.grammar, level: set.level, model: set.model, sections: set.sections });
+      // Sets made with a model that is no longer offered are retried on the default one.
+      const meta = await api.grammarModels();
+      const model = meta.models.some((m) => m.id === set.model) ? set.model : meta.defaultModel;
+      const g = await api.createGrammarSet({ grammar: set.grammar, level: set.level, model, sections: set.sections });
       navigate(`/grammar/${g.id}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Không tạo lại được");
@@ -115,9 +120,17 @@ export default function GrammarRun() {
   if (!set) return <Spinner className="mx-auto mt-24" />;
 
   const back = (
-    <Link to="/grammar" className="text-sm text-slate-400 hover:text-slate-800">
-      ← Ngữ pháp
-    </Link>
+    <div className="flex items-center justify-between gap-4">
+      <Link to="/grammar" className="text-sm text-slate-400 hover:text-slate-800">
+        ← Ngữ pháp
+      </Link>
+      <button
+        onClick={async () => (await confirmDeleteGrammar(dialog, set)) && navigate("/grammar")}
+        className="rounded-lg px-2.5 py-1 text-sm text-slate-400 hover:bg-red-50 hover:text-red-500"
+      >
+        🗑 Xoá bài
+      </button>
+    </div>
   );
 
   if (set.status === "generating") {

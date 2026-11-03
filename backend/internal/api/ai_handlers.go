@@ -153,15 +153,15 @@ func (s *Server) generateScript(w http.ResponseWriter, r *http.Request) {
 			b.WriteString(sp + ": ")
 		}
 		b.WriteString(text)
-		if vi := clean(l.Vietnamese); vi != "" {
-			b.WriteString(" | " + vi)
+		if tr := clean(l.Translation); tr != "" {
+			b.WriteString(" | " + tr)
 		}
 		b.WriteByte('\n')
 	}
 	resp := generateResponse{Title: clean(script.Title), Description: clean(script.Description), Kind: kind, Content: b.String(), Usage: usage}
 	for _, v := range script.Vocabulary {
 		if t := clean(v.Term); t != "" {
-			resp.Vocabulary = append(resp.Vocabulary, vocabSuggestion{Term: t, Meaning: clean(v.Vietnamese)})
+			resp.Vocabulary = append(resp.Vocabulary, vocabSuggestion{Term: t, Meaning: clean(v.Meaning)})
 		}
 	}
 	resp.GenerationID = genID

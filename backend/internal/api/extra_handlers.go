@@ -32,7 +32,8 @@ type translateResponse struct {
 	Chars        int      `json:"chars"`
 }
 
-// translateTexts returns Vietnamese translations, serving from the Postgres
+// translateTexts returns translations into the gloss language (German →
+// English, English → Vietnamese), serving from the Postgres
 // cache and only sending unseen texts to the translation provider.
 func (s *Server) translateTexts(w http.ResponseWriter, r *http.Request) {
 	var in translateRequest
@@ -119,10 +120,11 @@ func (s *Server) usage(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// translateCached translates texts to Vietnamese, serving from the Postgres
+// translateCached translates texts into the gloss language, serving from the Postgres
 // cache and only sending unseen texts to the provider (whose cost is logged).
 func (s *Server) translateCached(ctx context.Context, uid int64, language string, texts []string) (*translateResponse, error) {
-	from, to := language[:2], "vi"
+	from := language[:2]
+	to, _ := topic.Gloss(language)
 	cached, err := s.store.CachedTranslations(ctx, from, to, texts)
 	if err != nil {
 		return nil, err

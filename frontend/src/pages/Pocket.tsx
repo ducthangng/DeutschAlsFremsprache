@@ -6,7 +6,7 @@ import { Modal, useDialog } from "../components/Dialog";
 import ImagePicker from "../components/ImagePicker";
 import { SpeedControl } from "../components/SpeechControls";
 import Spinner from "../components/Spinner";
-import { api, ApiError, LANGUAGES, type CardState, type Grade, type Language, type VocabEntry, type VocabInput, type VocabStats } from "../lib/api";
+import { api, ApiError, GLOSS, LANGUAGES, type CardState, type Grade, type Language, type VocabEntry, type VocabInput, type VocabStats } from "../lib/api";
 import { speak, type Playback } from "../lib/audio";
 import { usePrefs } from "../lib/prefs";
 
@@ -390,7 +390,7 @@ function VocabDialog({ entry, onClose, onSaved }: { entry: VocabEntry | null; on
           onChange={(e) => setForm({ ...form, term: e.target.value })}
         />
         <div className="flex gap-2">
-          <input className={input} placeholder="Nghĩa tiếng Việt" value={form.meaning} onChange={(e) => setForm({ ...form, meaning: e.target.value })} />
+          <input className={input} placeholder={`Nghĩa ${GLOSS[form.language]}`} value={form.meaning} onChange={(e) => setForm({ ...form, meaning: e.target.value })} />
           <button type="button" onClick={suggestMeaning} disabled={busy || !form.term.trim()} className="shrink-0 rounded-lg px-3 text-sm text-indigo-700 ring-1 ring-indigo-200 hover:bg-indigo-50 disabled:opacity-40">
             🪄 Dịch
           </button>

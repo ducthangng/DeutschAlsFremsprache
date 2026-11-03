@@ -108,10 +108,10 @@ func (s *Server) providers() []provider {
 		if region == "" {
 			region = "global"
 		}
-		ps = append(ps, provider{Feature: "Dịch nghĩa tiếng Việt", Kind: "translate", Vendor: "Microsoft Azure",
+		ps = append(ps, provider{Feature: "Dịch nghĩa (Đức → Anh, Anh → Việt)", Kind: "translate", Vendor: "Microsoft Azure",
 			API: "Translator Text v3 · region " + region, Price: fmt.Sprintf("$%g / 1M ký tự", c.TranslatorUSDPerMillion), Active: true})
 	} else {
-		ps = append(ps, provider{Feature: "Dịch nghĩa tiếng Việt", Kind: "translate", Vendor: "MyMemory (miễn phí)",
+		ps = append(ps, provider{Feature: "Dịch nghĩa (Đức → Anh, Anh → Việt)", Kind: "translate", Vendor: "MyMemory (miễn phí)",
 			API: "api.mymemory.translated.net · chưa có AZURE_TRANSLATOR_KEY", Price: "Miễn phí", Active: true})
 	}
 	ps = append(ps,

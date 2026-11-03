@@ -23,22 +23,16 @@ type Model struct {
 	ReasoningEffort string `json:"-"`
 }
 
-// GrammarModels are the account's chat models that support structured output
-// on Chat Completions. The first one is the default. Realtime, audio,
-// transcription, moderation, search, codex and *-pro models (Responses API
-// only) are left out, as are older models without strict JSON schemas.
+// GrammarModels are the strong chat models allowed to design exercises
+// (support structured output on Chat Completions). Smaller and older models
+// (mini, nano, chat, o4-mini, 4o) are left out: they too often write
+// questions with two defensible answers. The first one is the default.
 var GrammarModels = []Model{
-	{ID: "gpt-5-mini", Label: "GPT-5 mini", Note: "Cân bằng chất lượng và chi phí", USDPerMInput: 0.25, USDPerMOutput: 2.00, ReasoningEffort: "low"},
-	{ID: "gpt-5-nano", Label: "GPT-5 nano", Note: "Rẻ và nhanh nhất", USDPerMInput: 0.05, USDPerMOutput: 0.40, ReasoningEffort: "low"},
 	{ID: "gpt-5.1", Label: "GPT-5.1", Note: "Chất lượng cao", USDPerMInput: 1.25, USDPerMOutput: 10.00, ReasoningEffort: "low"},
-	{ID: "gpt-5.4-mini", Label: "GPT-5.4 mini", Note: "Bản mini mới hơn", USDPerMInput: 0.75, USDPerMOutput: 4.50, PriceEstimated: true, ReasoningEffort: "low"},
-	{ID: "gpt-5.4-2026-03-05", Label: "GPT-5.4", Note: "Chất lượng cao", USDPerMInput: 2.50, USDPerMOutput: 15.00, PriceEstimated: true, ReasoningEffort: "low"},
+	{ID: "gpt-5.4-2026-03-05", Label: "GPT-5.4", Note: "Chất lượng cao, mới hơn", USDPerMInput: 2.50, USDPerMOutput: 15.00, PriceEstimated: true, ReasoningEffort: "low"},
 	{ID: "gpt-5.5-2026-04-23", Label: "GPT-5.5", Note: "Chất lượng rất cao, đắt", USDPerMInput: 5.00, USDPerMOutput: 30.00, PriceEstimated: true, ReasoningEffort: "low"},
 	{ID: "gpt-5.6-luna", Label: "GPT-5.6 Luna", Note: "Model mới", USDPerMInput: 5.00, USDPerMOutput: 30.00, PriceEstimated: true},
 	{ID: "gpt-5.6-sol", Label: "GPT-5.6 Sol", Note: "Model mới", USDPerMInput: 5.00, USDPerMOutput: 30.00, PriceEstimated: true},
-	{ID: "gpt-5-chat-latest", Label: "GPT-5 Chat", Note: "Không suy luận, trả lời nhanh", USDPerMInput: 1.25, USDPerMOutput: 10.00},
-	{ID: "o4-mini-2025-04-16", Label: "o4-mini", Note: "Model suy luận cũ", USDPerMInput: 1.10, USDPerMOutput: 4.40, ReasoningEffort: "low"},
-	{ID: "gpt-4o-2024-11-20", Label: "GPT-4o", Note: "Không suy luận", USDPerMInput: 2.50, USDPerMOutput: 10.00},
 }
 
 // GrammarModel looks up a model by id.
@@ -63,7 +57,7 @@ type RearrangeQuestion struct {
 	Fragments    []string `json:"fragments"` // shuffled
 	Answer       string   `json:"answer"`
 	Alternatives []string `json:"alternatives"` // other correct word orders
-	Translation  string   `json:"translation"`  // Vietnamese
+	Translation  string   `json:"translation"`  // English (German is glossed in English)
 	Explanation  string   `json:"explanation"`
 }
 
@@ -104,12 +98,12 @@ type WritingTask struct {
 	English      string   `json:"english"`
 	German       string   `json:"german"` // reference translation
 	Alternatives []string `json:"alternatives"`
-	Hint         string   `json:"hint"` // Vietnamese
+	Hint         string   `json:"hint"` // English
 }
 
 type GrammarContent struct {
 	Title          string              `json:"title"`
-	Overview       string              `json:"overview"` // Vietnamese explanation of the grammar point
+	Overview       string              `json:"overview"` // English explanation of the grammar point
 	MultipleChoice []ChoiceQuestion    `json:"multipleChoice"`
 	Rearrange      []RearrangeQuestion `json:"rearrange"`
 	Reading        *Reading            `json:"reading"`
@@ -150,14 +144,14 @@ func strs(desc string) map[string]any {
 
 var choiceSchema = obj(map[string]any{
 	"question":    str("The question in German; for gap-fill items the sentence with ___ marking the gap"),
-	"options":     strs("Exactly 4 answer options in German"),
+	"options":     strs("Exactly 4 different answer options in German; exactly one is correct, the other three are definitely wrong"),
 	"answer":      integer("0-based index of the single correct option"),
-	"explanation": str("Short explanation in Vietnamese of why the answer is right, naming the rule"),
+	"explanation": str("Short explanation in English of why the answer is right (and the others wrong), naming the rule"),
 })
 
 var coreSchema = obj(map[string]any{
 	"title":          str("Short German title for the exercise set"),
-	"overview":       str("Explanation of the grammar point in Vietnamese: form, use, 2-3 German examples; 80-160 words, plain text with line breaks"),
+	"overview":       str("Explanation of the grammar point in English: form, use, 2-3 German examples; 80-160 words, plain text with line breaks"),
 	"multipleChoice": arr(choiceSchema),
 })
 
@@ -166,8 +160,8 @@ var rearrangeSchema = obj(map[string]any{
 		"answer":       str("The correct German sentence, with final punctuation"),
 		"fragments":    strs("The words/short chunks of answer without final punctuation, in a scrambled order; joined in the right order they give answer"),
 		"alternatives": strs("Other fully correct word orders of the same fragments (may be empty)"),
-		"translation":  str("Vietnamese translation of answer"),
-		"explanation":  str("Short Vietnamese explanation of the word order rule"),
+		"translation":  str("English translation of answer"),
+		"explanation":  str("Short English explanation of the word order rule"),
 	})),
 })
 
@@ -194,7 +188,7 @@ var listeningSchema = obj(map[string]any{
 		"options":     strs("choice: exactly 4 German options. blank: empty"),
 		"answer":      integer("choice: 0-based index of the correct option. blank: -1"),
 		"accepted":    strs("blank: the exact missing words as spoken, plus any equally correct variants. choice: empty"),
-		"explanation": str("Short Vietnamese explanation"),
+		"explanation": str("Short English explanation"),
 	})),
 })
 
@@ -203,7 +197,7 @@ var writingSchema = obj(map[string]any{
 		"english":      str("The English sentence to translate"),
 		"german":       str("The best German translation"),
 		"alternatives": strs("Other correct German translations (may be empty)"),
-		"hint":         str("Short Vietnamese hint about the grammar needed, without giving the answer away"),
+		"hint":         str("Short English hint about the grammar needed, without giving the answer away"),
 	})),
 })
 
@@ -214,7 +208,15 @@ var listeningLines = map[string]string{"A1": "8-10", "A2": "10-12", "B1": "12-16
 
 const grammarSystem = "You are an experienced teacher of German as a foreign language (DaF) who writes accurate, varied grammar exercises " +
 	"for Vietnamese learners. All German must be correct standard German (Hochdeutsch) and match the requested CEFR level. " +
-	"Explanations are written in Vietnamese."
+	"Explanations, hints and feedback are written in simple English (German is taught through English); " +
+	"only the listening situation is in Vietnamese."
+
+// singleAnswer is the rule every multiple-choice question must follow.
+const singleAnswer = "Multiple-choice rule: every question has exactly ONE correct option, and it is definitely correct. " +
+	"Each of the other three options must be definitely wrong in this sentence (wrong form, case, ending, word order or meaning), " +
+	"never merely less common, less formal or a regional variant. Make the sentence context decide the answer unambiguously " +
+	"(e.g. a time marker for tense, a subject for the verb ending). Before answering, check every question: if two options could be " +
+	"accepted by a careful teacher, rewrite it. All 4 options are different. The order of options does not matter; it is shuffled afterwards.\n"
 
 func grammarIntro(r GrammarRequest) string {
 	return fmt.Sprintf("Grammar point: %s\nLearner level: CEFR %s\n%sEvery item must practise this grammar point; vary situations and sentence patterns, and never repeat an item.\n",
@@ -236,8 +238,8 @@ func vocabBrief(r GrammarRequest) string {
 // GrammarCore writes the title, the explanation and the multiple-choice questions.
 func (c *Client) GrammarCore(ctx context.Context, m Model, r GrammarRequest) (title, overview string, qs []ChoiceQuestion, u *Usage, err error) {
 	prompt := grammarIntro(r) + fmt.Sprintf(
-		"Write a German title for the exercise set, a Vietnamese overview of the grammar point, and exactly %d multiple-choice questions. "+
-			"Mix gap-fill sentences (with ___) and short questions; each has 4 plausible options that differ in the targeted form, exactly one correct.",
+		"Write a German title for the exercise set, an English overview of the grammar point, and exactly %d multiple-choice questions. "+
+			"Mix gap-fill sentences (with ___) and short questions; each has 4 plausible options that differ in the targeted form.\n"+singleAnswer,
 		r.Sections.MultipleChoice)
 	var out struct {
 		Title          string           `json:"title"`
@@ -275,7 +277,8 @@ func (c *Client) GrammarRearrange(ctx context.Context, m Model, r GrammarRequest
 func (c *Client) GrammarReading(ctx context.Context, m Model, r GrammarRequest) (*Reading, *Usage, error) {
 	prompt := grammarIntro(r) + fmt.Sprintf(
 		"Write a German reading text of %s words (an article, story, email or blog post) that uses the grammar point many times naturally, "+
-			"then exactly %d multiple-choice comprehension questions in German. Questions check understanding of the text; several should hinge on the grammar point.",
+			"then exactly %d multiple-choice comprehension questions in German. Questions check understanding of the text; several should hinge on the grammar point. "+
+			"The text must clearly support the one correct option and clearly rule out the others.\n"+singleAnswer,
 		readingWords[r.Level], r.Sections.Reading)
 	var out Reading
 	u, err := c.chatJSONWith(ctx, c.slow, m, grammarSystem, prompt, "grammar_reading", readingSchema, 0.8, &out)
@@ -290,7 +293,8 @@ func (c *Client) GrammarListening(ctx context.Context, m Model, r GrammarRequest
 	prompt := grammarIntro(r) + fmt.Sprintf(
 		"Write a German listening script: a natural conversation between 2 speakers (one female, one male) of %s turns, "+
 			"or a short radio announcement/podcast by 1 speaker, that uses the grammar point many times. No stage directions. "+
-			"Then exactly %d questions, about half \"choice\" (comprehension, 4 options) and half \"blank\" (a sentence quoted word for word from the script with 1-3 words replaced by ___; prefer words showing the grammar point).",
+			"Then exactly %d questions, about half \"choice\" (comprehension, 4 options) and half \"blank\" (a sentence quoted word for word from the script with 1-3 words replaced by ___; prefer words showing the grammar point).\n"+
+			"For \"choice\" questions: "+singleAnswer,
 		listeningLines[r.Level], r.Sections.Listening)
 	var out Listening
 	u, err := c.chatJSONWith(ctx, c.slow, m, grammarSystem, prompt, "grammar_listening", listeningSchema, 0.8, &out)
@@ -301,9 +305,10 @@ func (c *Client) GrammarListening(ctx context.Context, m Model, r GrammarRequest
 	for _, q := range out.Questions {
 		switch q.Kind {
 		case "choice":
-			if len(q.Options) < 2 || q.Answer < 0 || q.Answer >= len(q.Options) {
+			if !validOptions(q.Options, q.Answer) {
 				continue
 			}
+			q.Options, q.Answer = shuffleOptions(q.Options, q.Answer)
 			q.Accepted = []string{}
 		case "blank":
 			if !strings.Contains(q.Question, "___") || len(q.Accepted) == 0 {
@@ -344,7 +349,8 @@ func (c *Client) GrammarWriting(ctx context.Context, m Model, r GrammarRequest) 
 func cleanChoices(qs []ChoiceQuestion, n int) []ChoiceQuestion {
 	var out []ChoiceQuestion
 	for _, q := range qs {
-		if strings.TrimSpace(q.Question) != "" && len(q.Options) >= 2 && q.Answer >= 0 && q.Answer < len(q.Options) {
+		if strings.TrimSpace(q.Question) != "" && validOptions(q.Options, q.Answer) {
+			q.Options, q.Answer = shuffleOptions(q.Options, q.Answer)
 			out = append(out, q)
 		}
 	}
@@ -359,6 +365,37 @@ func capped[T any](xs []T, n int) []T {
 		xs = xs[:n]
 	}
 	return xs
+}
+
+// validOptions: at least 2 options, all different, and the answer points at one.
+func validOptions(opts []string, answer int) bool {
+	if len(opts) < 2 || answer < 0 || answer >= len(opts) {
+		return false
+	}
+	seen := map[string]bool{}
+	for _, o := range opts {
+		k := strings.ToLower(strings.TrimSpace(o))
+		if k == "" || seen[k] {
+			return false
+		}
+		seen[k] = true
+	}
+	return true
+}
+
+// shuffleOptions puts the options in random order (models favour putting the
+// right answer first) and returns where the answer ended up.
+func shuffleOptions(opts []string, answer int) ([]string, int) {
+	perm := rand.Perm(len(opts))
+	out := make([]string, len(opts))
+	at := 0
+	for i, p := range perm {
+		out[i] = opts[p]
+		if p == answer {
+			at = i
+		}
+	}
+	return out, at
 }
 
 // scramble shuffles fragments so they never come out in the original order.
@@ -393,7 +430,7 @@ var writingFeedbackSchema = obj(map[string]any{
 		"score":     integer("0-10: 10 fully correct and natural, 7-9 small slips (spelling, a missing comma), 4-6 one real grammar error, 0-3 wrong or missing"),
 		"verdict":   map[string]any{"type": "string", "enum": []string{"correct", "minor", "wrong"}},
 		"corrected": str("The learner's sentence with the fewest changes that make it correct; the answer itself if already correct"),
-		"feedback":  str("1-2 sentences in Vietnamese: what is wrong and why, focusing on the grammar point; praise briefly if correct"),
+		"feedback":  str("1-2 sentences in simple English: what is wrong and why, focusing on the grammar point; praise briefly if correct"),
 	})),
 })
 

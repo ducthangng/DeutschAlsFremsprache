@@ -646,6 +646,9 @@ export interface Health {
   grammar: boolean;
 }
 
+/** Language translations and meanings are given in: German → English, English → Vietnamese. */
+export const GLOSS: Record<Language, string> = { "de-DE": "tiếng Anh", "en-US": "tiếng Việt" };
+
 export const LANGUAGES: Record<Language, { label: string; flag: string }> = {
   "de-DE": { label: "Tiếng Đức", flag: "🇩🇪" },
   "en-US": { label: "Tiếng Anh", flag: "🇺🇸" },

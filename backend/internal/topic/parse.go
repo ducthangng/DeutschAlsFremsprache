@@ -21,6 +21,16 @@ const (
 
 var Languages = map[string]bool{"de-DE": true, "en-US": true}
 
+// Gloss is the language translations and word meanings are given in:
+// German is learned through English, English through Vietnamese. It returns
+// the language code ("en", "vi") and its English name.
+func Gloss(language string) (code, name string) {
+	if language == "de-DE" {
+		return "en", "English"
+	}
+	return "vi", "Vietnamese"
+}
+
 type Line struct {
 	Speaker string `json:"speaker"`
 	Text    string `json:"text"`

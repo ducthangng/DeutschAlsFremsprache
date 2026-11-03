@@ -13,6 +13,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"deutschfremsprache/internal/topic"
 )
 
 type Config struct {
@@ -76,14 +78,14 @@ var SentenceLengths = map[string]string{
 }
 
 type ScriptLine struct {
-	Speaker    string `json:"speaker"`
-	Text       string `json:"text"`
-	Vietnamese string `json:"vietnamese"`
+	Speaker     string `json:"speaker"`
+	Text        string `json:"text"`
+	Translation string `json:"translation"` // into the gloss language (topic.Gloss)
 }
 
 type VocabItem struct {
-	Term       string `json:"term"`
-	Vietnamese string `json:"vietnamese"`
+	Term    string `json:"term"`
+	Meaning string `json:"meaning"` // in the gloss language
 }
 
 type Script struct {
@@ -112,11 +114,11 @@ var scriptSchema = map[string]any{
 			"items": map[string]any{
 				"type":                 "object",
 				"additionalProperties": false,
-				"required":             []string{"speaker", "text", "vietnamese"},
+				"required":             []string{"speaker", "text", "translation"},
 				"properties": map[string]any{
-					"speaker":    map[string]any{"type": "string", "description": "Speaker first name; empty string for monologue or vocabulary lists"},
-					"text":       map[string]any{"type": "string"},
-					"vietnamese": map[string]any{"type": "string", "description": "Natural Vietnamese translation of text"},
+					"speaker":     map[string]any{"type": "string", "description": "Speaker first name; empty string for monologue or vocabulary lists"},
+					"text":        map[string]any{"type": "string"},
+					"translation": map[string]any{"type": "string", "description": "Natural translation of text into the gloss language named in the instructions"},
 				},
 			},
 		},
@@ -125,10 +127,10 @@ var scriptSchema = map[string]any{
 			"items": map[string]any{
 				"type":                 "object",
 				"additionalProperties": false,
-				"required":             []string{"term", "vietnamese"},
+				"required":             []string{"term", "meaning"},
 				"properties": map[string]any{
-					"term":       map[string]any{"type": "string", "description": "Dictionary form; German nouns with article"},
-					"vietnamese": map[string]any{"type": "string"},
+					"term":    map[string]any{"type": "string", "description": "Dictionary form; German nouns with article"},
+					"meaning": map[string]any{"type": "string", "description": "Meaning in the gloss language"},
 				},
 			},
 		},
@@ -137,8 +139,10 @@ var scriptSchema = map[string]any{
 
 func scriptPrompt(r ScriptRequest) string {
 	lang := map[string]string{"de-DE": "German (standard Hochdeutsch)", "en-US": "American English"}[r.Language]
+	_, gloss := topic.Gloss(r.Language)
 	var b strings.Builder
 	fmt.Fprintf(&b, "Write a pronunciation-practice script in %s for a Vietnamese learner at CEFR level %s.\n", lang, r.Level)
+	fmt.Fprintf(&b, "Gloss language (for \"translation\" and vocabulary meanings): %s.\n", gloss)
 	fmt.Fprintf(&b, "Scenario: %s\n", r.Scenario)
 	switch r.SpeechType {
 	case "dialogue":
@@ -150,9 +154,9 @@ func scriptPrompt(r ScriptRequest) string {
 	}
 	if len(r.Vocabulary) > 0 {
 		fmt.Fprintf(&b, "Use every one of these terms naturally at least once: %s\n", strings.Join(r.Vocabulary, "; "))
-		b.WriteString("In \"vocabulary\" list exactly these terms (dictionary form) with their Vietnamese meaning.\n")
+		fmt.Fprintf(&b, "In \"vocabulary\" list exactly these terms (dictionary form) with their %s meaning.\n", gloss)
 	} else {
-		b.WriteString("In \"vocabulary\" list 5-8 useful key terms from the script with their Vietnamese meaning.\n")
+		fmt.Fprintf(&b, "In \"vocabulary\" list 5-8 useful key terms from the script with their %s meaning.\n", gloss)
 	}
 	words := SentenceLengths[r.Length]
 	if words == "" {
@@ -160,7 +164,7 @@ func scriptPrompt(r ScriptRequest) string {
 	}
 	fmt.Fprintf(&b, "Sentence length: each spoken line should be %s long (a single vocabulary term may be shorter).\n", words)
 	b.WriteString("Rules: everyday, correct, idiomatic language; no stage directions, no quotes, no numbering. " +
-		"\"vietnamese\" is a natural translation, not word-by-word. \"title\" is in the target language, \"description\" in Vietnamese.")
+		"\"translation\" is a natural translation, not word-by-word. \"title\" is in the target language, \"description\" in Vietnamese.")
 	return b.String()
 }
 

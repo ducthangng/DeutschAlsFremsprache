@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { api, type TopicDetail, type VocabCandidate } from "../lib/api";
+import { api, GLOSS, type TopicDetail, type VocabCandidate } from "../lib/api";
 import { Modal } from "./Dialog";
 import Spinner from "./Spinner";
 
@@ -164,7 +164,7 @@ export default function AddVocabDialog({ topic, onClose }: { topic: TopicDetail;
       )}
       <div className="mt-4 flex items-center justify-between gap-3">
         <span className="text-sm text-slate-500">
-          Đã chọn <b className="text-slate-800">{picked.size}</b> · nghĩa tiếng Việt được dịch tự động
+          Đã chọn <b className="text-slate-800">{picked.size}</b> · nghĩa {GLOSS[topic.language]} được dịch tự động
         </span>
         <div className="flex gap-2">
           <button onClick={onClose} className="rounded-xl px-4 py-2 text-sm text-slate-600 hover:bg-slate-100">

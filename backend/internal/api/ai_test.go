@@ -30,10 +30,13 @@ func fakeOpenAI(t *testing.T, ttsCalls *atomic.Int32) *httptest.Server {
 			if !strings.Contains(string(body), "json_schema") || !strings.Contains(string(body), "Fahrkarte") {
 				t.Errorf("unexpected chat request: %s", body)
 			}
+			if !strings.Contains(string(body), "Gloss language (for \\\"translation\\\" and vocabulary meanings): English") {
+				t.Errorf("German script not glossed in English: %s", body)
+			}
 			script := `{"title":"Am Schalter","description":"Mua vé tàu","lines":[` +
-				`{"speaker":"Anna","text":"Ich möchte eine Fahrkarte | bitte.","vietnamese":"Tôi muốn mua một vé."},` +
-				`{"speaker":"Herr Weber:","text":"Wohin möchten Sie fahren?","vietnamese":"Chị muốn đi đâu?"}],` +
-				`"vocabulary":[{"term":"die Fahrkarte","vietnamese":"vé tàu"}]}`
+				`{"speaker":"Anna","text":"Ich möchte eine Fahrkarte | bitte.","translation":"I would like a ticket."},` +
+				`{"speaker":"Herr Weber:","text":"Wohin möchten Sie fahren?","translation":"Where would you like to go?"}],` +
+				`"vocabulary":[{"term":"die Fahrkarte","meaning":"ticket"}]}`
 			json.NewEncoder(w).Encode(map[string]any{
 				"model":   "gpt-test",
 				"choices": []any{map[string]any{"message": map[string]any{"content": script}, "finish_reason": "stop"}},
@@ -75,7 +78,7 @@ func TestAIGenerationSpeechAndPublicTopics(t *testing.T) {
 	if code != 200 || gen.GenerationID == 0 || gen.Usage.CostUSD != 0.002 {
 		t.Fatalf("generate: %d %+v", code, gen)
 	}
-	wantContent := "Anna: Ich möchte eine Fahrkarte / bitte. | Tôi muốn mua một vé.\nHerr Weber: Wohin möchten Sie fahren? | Chị muốn đi đâu?\n"
+	wantContent := "Anna: Ich möchte eine Fahrkarte / bitte. | I would like a ticket.\nHerr Weber: Wohin möchten Sie fahren? | Where would you like to go?\n"
 	if gen.Content != wantContent || gen.Title != "Am Schalter" || len(gen.Vocabulary) != 1 {
 		t.Fatalf("generated content: %q %+v", gen.Content, gen)
 	}
@@ -94,7 +97,7 @@ func TestAIGenerationSpeechAndPublicTopics(t *testing.T) {
 		t.Fatalf("pocket filled without asking: %+v", vocab)
 	}
 	owner.json("GET", "/api/topics/"+itoa(tp.ID)+"/vocabulary", nil, &vocab)
-	if len(vocab) != 1 || vocab[0].Term != "die Fahrkarte" || vocab[0].Meaning != "vé tàu" {
+	if len(vocab) != 1 || vocab[0].Term != "die Fahrkarte" || vocab[0].Meaning != "ticket" {
 		t.Fatalf("topic vocabulary: %+v", vocab)
 	}
 

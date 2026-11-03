@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { useDialog } from "../components/Dialog";
+import { Modal, useDialog } from "../components/Dialog";
 import Spinner from "../components/Spinner";
 import { api, type GrammarModels, type GrammarSection, type GrammarSections, type GrammarSet, type VocabEntry } from "../lib/api";
 import { formatUsd } from "../lib/format";
@@ -54,6 +54,7 @@ export default function Grammar() {
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [creating, setCreating] = useState(false);
   const navigate = useNavigate();
   const dialog = useDialog();
 
@@ -106,8 +107,7 @@ export default function Grammar() {
   }
 
   async function remove(g: GrammarSet) {
-    if (!(await dialog.confirm({ title: `Xoá bài "${g.title || g.grammar}"?`, message: "Bài tập và câu trả lời của bạn sẽ bị xoá.", confirmText: "Xoá", danger: true }))) return;
-    await api.deleteGrammarSet(g.id);
+    if (!(await confirmDeleteGrammar(dialog, g))) return;
     setSets((s) => s?.filter((x) => x.id !== g.id) ?? null);
   }
 
@@ -115,14 +115,66 @@ export default function Grammar() {
 
   return (
     <div className="px-4 pb-20 pt-10 sm:px-10">
-      <section className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-[#0c2a43] via-[#15161f] to-[#0d0e12] p-8 ring-1 ring-white/5 sm:p-12">
-        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-white/40">Ngữ pháp</p>
-        <h1 className="mt-2 max-w-2xl text-3xl font-bold text-white sm:text-4xl">Bộ bài tập ngữ pháp tiếng Đức, soạn riêng cho bạn</h1>
-        <p className="mt-3 max-w-2xl text-white/60">
-          Nhập chủ điểm ngữ pháp và trình độ, chọn dạng bài và số câu. AI soạn trắc nghiệm, sắp xếp câu, bài đọc, bài nghe (giọng đọc Microsoft) và bài dịch Anh → Đức.
-        </p>
+      <section className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-[#0c2a43] via-[#15161f] to-[#0d0e12] p-8 ring-1 ring-white/5 sm:p-10">
+        <div className="flex flex-wrap items-end justify-between gap-6">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-white/40">Ngữ pháp</p>
+            <h1 className="mt-2 max-w-2xl text-3xl font-bold text-white sm:text-4xl">Bộ bài tập ngữ pháp tiếng Đức, soạn riêng cho bạn</h1>
+            <p className="mt-3 max-w-2xl text-white/60">
+              AI soạn trắc nghiệm, sắp xếp câu, bài đọc, bài nghe (giọng đọc Microsoft) và bài dịch Anh → Đức theo chủ điểm và trình độ bạn chọn.
+            </p>
+          </div>
+          <button onClick={() => setCreating(true)} className="shrink-0 rounded-xl bg-white px-6 py-2.5 font-semibold text-black hover:bg-white/85">
+            ＋ Tạo bài mới
+          </button>
+        </div>
+      </section>
 
-        <div className="mt-8 max-w-4xl space-y-8">
+      <h2 className="mb-3 mt-10 text-lg font-semibold text-slate-800">Bài đã tạo</h2>
+      {!sets && !error && <Spinner />}
+      {!sets && error && <p className="text-sm text-red-500">{error}</p>}
+      {sets?.length === 0 && (
+        <div className="rounded-2xl border border-dashed border-slate-300 p-10 text-center">
+          <p className="text-slate-500">Chưa có bài nào.</p>
+          <button onClick={() => setCreating(true)} className="mt-4 rounded-xl bg-indigo-600 px-5 py-2 font-semibold text-white hover:bg-indigo-500">
+            ＋ Tạo bộ bài tập đầu tiên
+          </button>
+        </div>
+      )}
+      <ul className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        {sets?.map((g) => (
+          <li key={g.id} className="relative">
+            <Link to={`/grammar/${g.id}`} className="block h-full rounded-2xl bg-surface p-5 ring-1 ring-slate-200 transition hover:ring-indigo-300">
+              <div className="flex items-center gap-2 pr-10 text-xs text-slate-400">
+                <span>
+                  {g.level} · {new Date(g.createdAt).toLocaleDateString("vi-VN")}
+                </span>
+                <span className={g.status === "ready" ? "text-emerald-600" : g.status === "failed" ? "text-red-500" : "text-amber-700"}>
+                  · {g.status === "ready" ? (g.started ? "Đang làm" : "Sẵn sàng") : g.status === "failed" ? "Lỗi" : "Đang tạo…"}
+                </span>
+              </div>
+              <h3 className="mt-2 pr-8 font-semibold text-slate-900">{g.title || g.grammar}</h3>
+              {g.title && g.title !== g.grammar && <p className="text-sm text-slate-500">{g.grammar}</p>}
+              <p className="mt-3 text-xs text-slate-400">{sectionSummary(g.sections)}</p>
+              <p className="mt-1 text-xs text-slate-400">
+                {g.model} · ≈ {formatUsd(g.costUsd)}
+              </p>
+            </Link>
+            <button
+              onClick={() => remove(g)}
+              className="absolute right-3 top-3 rounded-lg px-2 py-1 text-sm text-slate-400 transition hover:bg-red-50 hover:text-red-500"
+              title="Xoá bài"
+              aria-label={`Xoá bài ${g.title || g.grammar}`}
+            >
+              🗑
+            </button>
+          </li>
+        ))}
+      </ul>
+
+      <Modal open={creating} onClose={() => !busy && setCreating(false)} title="Tạo bài ngữ pháp" width="max-w-3xl">
+        <div className="-mx-6 max-h-[75vh] overflow-y-auto px-6 pb-1">
+        <div className="space-y-7">
           <Field label="Chủ điểm ngữ pháp" htmlFor="grammar">
             <input
               id="grammar"
@@ -292,47 +344,36 @@ export default function Grammar() {
                 `✨ Tạo bài (${total} câu)`
               )}
             </button>
+            <button onClick={() => setCreating(false)} disabled={busy} className="rounded-xl px-4 py-2.5 text-white/60 hover:text-white disabled:opacity-50">
+              Huỷ
+            </button>
             <span className="text-sm text-white/40">Thường mất 30 giây đến 2 phút, tuỳ model.</span>
           </div>
           {meta && !meta.enabled && <p className="text-sm text-amber-500">Cần cấu hình OPENAI_API_KEY trên máy chủ để tạo bài ngữ pháp.</p>}
           {error && <p className="text-sm text-red-400">{error}</p>}
         </div>
-      </section>
-
-      <h2 className="mb-3 mt-12 text-lg font-semibold text-slate-800">Bài đã tạo</h2>
-      {!sets && !error && <Spinner />}
-      {sets?.length === 0 && <p className="text-slate-500">Chưa có bài nào. Hãy tạo bộ bài tập đầu tiên!</p>}
-      <ul className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-        {sets?.map((g) => (
-          <li key={g.id} className="group relative">
-            <Link to={`/grammar/${g.id}`} className="block h-full rounded-2xl bg-surface p-5 ring-1 ring-slate-200 transition hover:ring-indigo-300">
-              <div className="flex items-center justify-between text-xs text-slate-400">
-                <span>
-                  {g.level} · {new Date(g.createdAt).toLocaleDateString("vi-VN")}
-                </span>
-                <span className={g.status === "ready" ? "text-emerald-600" : g.status === "failed" ? "text-red-500" : "text-amber-700"}>
-                  {g.status === "ready" ? (g.started ? "Đang làm" : "Sẵn sàng") : g.status === "failed" ? "Lỗi" : "Đang tạo…"}
-                </span>
-              </div>
-              <h3 className="mt-2 pr-8 font-semibold text-slate-900">{g.title || g.grammar}</h3>
-              {g.title && g.title !== g.grammar && <p className="text-sm text-slate-500">{g.grammar}</p>}
-              <p className="mt-3 text-xs text-slate-400">{sectionSummary(g.sections)}</p>
-              <p className="mt-1 text-xs text-slate-400">
-                {g.model} · ≈ {formatUsd(g.costUsd)}
-              </p>
-            </Link>
-            <button
-              onClick={() => remove(g)}
-              className="absolute right-3 top-9 rounded px-2 py-1 text-xs text-red-500 opacity-0 transition hover:bg-red-50 focus:opacity-100 group-hover:opacity-100"
-              title="Xoá"
-            >
-              Xoá
-            </button>
-          </li>
-        ))}
-      </ul>
+        </div>
+      </Modal>
     </div>
   );
+}
+
+/** Asks, then deletes a grammar set; resolves true once it is gone. */
+export async function confirmDeleteGrammar(dialog: ReturnType<typeof useDialog>, g: GrammarSet): Promise<boolean> {
+  const ok = await dialog.confirm({
+    title: `Xoá bài "${g.title || g.grammar}"?`,
+    message: "Bài tập và câu trả lời của bạn sẽ bị xoá vĩnh viễn.",
+    confirmText: "Xoá bài",
+    danger: true,
+  });
+  if (!ok) return false;
+  try {
+    await api.deleteGrammarSet(g.id);
+    return true;
+  } catch (e) {
+    await dialog.alert("Không xoá được", e instanceof Error ? e.message : "");
+    return false;
+  }
 }
 
 function Field({ label, htmlFor, children }: { label: string; htmlFor?: string; children: ReactNode }) {
