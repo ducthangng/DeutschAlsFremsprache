@@ -81,6 +81,9 @@ type GrammarSet struct {
 	CostUsd         float64
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
+	VocabLevel      string
+	Vocabulary      []byte
+	Pending         string
 }
 
 type Item struct {

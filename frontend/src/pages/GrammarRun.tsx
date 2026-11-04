@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { useDialog } from "../components/Dialog";
+import { Modal, useDialog } from "../components/Dialog";
 import SelectionLookup from "../components/SelectionLookup";
 import Spinner from "../components/Spinner";
 import {
@@ -11,6 +11,7 @@ import {
   type GrammarPartProgress,
   type GrammarProgress,
   type GrammarSection,
+  type GrammarSections,
   type GrammarSet,
   type ListeningQuestion,
   type RearrangeQuestion,
@@ -93,25 +94,34 @@ export default function GrammarRun() {
   const [answers, setAnswers] = useState<GrammarAnswers>(EMPTY);
   const [error, setError] = useState("");
   const [retrying, setRetrying] = useState(false);
+  const [poll, setPoll] = useState(0);
+  // Adding or rewriting a part: which part, and how many questions.
+  const [regen, setRegen] = useState<{ key: GrammarSection; count: number; exists: boolean } | null>(null);
+  const [limits, setLimits] = useState<GrammarSections | null>(null);
   const dirty = useRef(false);
+  const wasPending = useRef(false);
   const navigate = useNavigate();
   const [prefs] = usePrefs();
   const dialog = useDialog();
 
-  // Load, and poll while the set is being generated.
+  // Load, and poll while the set (or one of its parts) is being generated.
   useEffect(() => {
     let timer = 0;
     let alive = true;
+    let first = true;
     const load = () =>
       api.getGrammarSet(id).then(
         (g) => {
           if (!alive) return;
           setSet(g);
-          if (g.status === "generating") timer = window.setTimeout(load, 2500);
-          else if (g.answers) {
+          if (g.status === "generating" || g.pending) timer = window.setTimeout(load, 2500);
+          // Answers come from the server on the first load and once a part has been rewritten (its answers were cleared).
+          if ((first || (wasPending.current && !g.pending)) && g.answers) {
             dirty.current = !g.answers.progress; // sets from before progress tracking: save it once
             setAnswers({ ...EMPTY, ...g.answers });
           }
+          wasPending.current = !!g.pending;
+          first = false;
         },
         (e) => alive && setError(e.message),
       );
@@ -120,7 +130,24 @@ export default function GrammarRun() {
       alive = false;
       clearTimeout(timer);
     };
-  }, [id]);
+  }, [id, poll]);
+
+  useEffect(() => {
+    api.grammarModels().then((m) => setLimits(m.limits), () => {});
+  }, []);
+
+  async function startSection(key: GrammarSection, count: number) {
+    try {
+      const g = await api.addGrammarSection(id, key, count);
+      // The part starts afresh: drop its answers here too, so an autosave cannot bring them back.
+      update((a) => ({ ...a, [key]: {}, checked: { ...a.checked, [key]: false } }) as GrammarAnswers);
+      setSet((s) => s && { ...s, pending: g.pending });
+      setRegen(null);
+      setPoll((n) => n + 1);
+    } catch (e) {
+      dialog.alert("Không tạo được phần này", e instanceof Error ? e.message : "");
+    }
+  }
 
   // Save answers (with their progress summary) shortly after the learner stops typing.
   const content = set?.content;
@@ -220,6 +247,46 @@ export default function GrammarRun() {
   const nextTodo = present.find((x) => !done(x.key)) ?? null;
   const answeredAll = present.reduce((s, x) => s + progress[x.key]!.answered, 0);
   const questionsAll = present.reduce((s, x) => s + progress[x.key]!.questions, 0);
+  const missing = SECTIONS.filter((x) => !progress[x.key]);
+  const pendingLabel = SECTIONS.find((x) => x.key === set.pending)?.label;
+  const openRegen = (key: GrammarSection) => {
+    const have = progress[key]?.questions;
+    setRegen({ key, exists: !!have, count: have ?? Math.min(10, limits?.[key] ?? 10) });
+  };
+
+  const pendingBanner = set.pending && (
+    <div className="mt-4 flex items-center gap-3 rounded-xl bg-indigo-50 px-4 py-3 text-sm text-indigo-800">
+      <Spinner className="h-4 w-4" /> AI đang soạn phần “{pendingLabel}”… Bạn vẫn làm được các phần khác trong lúc chờ.
+    </div>
+  );
+  const regenDialog = regen && (
+    <Modal open onClose={() => setRegen(null)} title={`${regen.exists ? "Tạo lại" : "Thêm"} phần “${SECTIONS.find((x) => x.key === regen.key)!.label}”`}>
+      <label className="flex items-center gap-3 text-sm text-slate-600">
+        Số câu
+        <input
+          type="number"
+          min={1}
+          max={limits?.[regen.key] ?? 30}
+          value={regen.count}
+          onChange={(e) => setRegen({ ...regen, count: Math.max(1, Math.min(limits?.[regen.key] ?? 30, Number(e.target.value) || 1)) })}
+          className="w-20 rounded-lg border border-slate-300 bg-transparent px-2 py-1"
+        />
+        <span className="text-slate-400">tối đa {limits?.[regen.key] ?? 30}</span>
+      </label>
+      <p className="mt-3 text-sm leading-relaxed text-slate-500">
+        AI soạn {regen.exists ? "bộ câu hỏi mới thay cho phần hiện tại" : "phần này"} theo cùng chủ điểm, trình độ và từ vựng của bài ({set.model}).
+        {regen.exists && <b className="font-medium text-amber-700"> Câu trả lời và điểm của phần này sẽ bị xoá.</b>} Thường mất 20–60 giây.
+      </p>
+      <div className="mt-6 flex justify-end gap-2">
+        <button onClick={() => setRegen(null)} className="rounded-xl px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100">
+          Huỷ
+        </button>
+        <button onClick={() => startSection(regen.key, regen.count)} className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500">
+          {regen.exists ? "↻ Tạo lại" : "＋ Thêm phần"}
+        </button>
+      </div>
+    </Modal>
+  );
 
   const errors = c.errors && Object.keys(c.errors).length > 0 && (
     <div className="mt-4 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-800">
@@ -252,6 +319,8 @@ export default function GrammarRun() {
             {set.model} · chi phí ≈ {formatUsd(set.costUsd)}
           </p>
         </header>
+        {regenDialog}
+        {pendingBanner}
         {errors}
         {overview(!set.started)}
 
@@ -266,10 +335,11 @@ export default function GrammarRun() {
             {present.map((x, i) => {
               const p = progress[x.key]!;
               return (
-                <li key={x.key}>
+                <li key={x.key} className="flex items-stretch gap-2">
                   <button
                     onClick={() => go(x.key)}
-                    className="flex w-full items-center gap-4 rounded-2xl bg-surface px-5 py-4 text-left ring-1 ring-slate-200 transition hover:ring-indigo-300"
+                    disabled={set.pending === x.key}
+                    className="flex min-w-0 flex-1 items-center gap-4 rounded-2xl bg-surface px-5 py-4 text-left ring-1 ring-slate-200 transition hover:ring-indigo-300 disabled:opacity-50"
                   >
                     <span
                       className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-semibold ${
@@ -289,19 +359,47 @@ export default function GrammarRun() {
                         />
                       </span>
                     </span>
-                    <ProgressBadge p={p} className="shrink-0 text-sm" />
+                    {set.pending === x.key ? <Spinner className="h-4 w-4 shrink-0" /> : <ProgressBadge p={p} className="shrink-0 text-sm" />}
                     <span className="shrink-0 text-slate-300">›</span>
+                  </button>
+                  <button
+                    onClick={() => openRegen(x.key)}
+                    disabled={!!set.pending}
+                    title={`Tạo lại phần ${x.label} với câu hỏi mới`}
+                    aria-label={`Tạo lại phần ${x.label}`}
+                    className="shrink-0 rounded-2xl px-4 text-slate-400 ring-1 ring-slate-200 transition hover:text-indigo-600 hover:ring-indigo-300 disabled:opacity-40"
+                  >
+                    ↻
                   </button>
                 </li>
               );
             })}
           </ol>
+          {missing.length > 0 && (
+            <div className="mt-4">
+              <p className="mb-2 text-sm text-slate-400">Thêm dạng bài khác vào bài này:</p>
+              <div className="flex flex-wrap gap-2">
+                {missing.map((x) => (
+                  <button
+                    key={x.key}
+                    onClick={() => openRegen(x.key)}
+                    disabled={!!set.pending}
+                    className="flex items-center gap-1.5 rounded-xl border border-dashed border-slate-300 px-3 py-2 text-sm text-slate-600 transition hover:border-indigo-400 hover:text-indigo-600 disabled:opacity-40"
+                  >
+                    {set.pending === x.key ? <Spinner className="h-4 w-4" /> : "＋"} {x.icon} {x.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          {present.length > 0 && (
           <button
             onClick={() => go((nextTodo ?? present[0]).key)}
             className="mt-6 w-full rounded-xl bg-indigo-600 px-5 py-3 font-semibold text-white hover:bg-indigo-500 sm:w-auto"
           >
             {!set.started ? "Bắt đầu" : nextTodo ? `Tiếp tục: ${nextTodo.label}` : "Xem lại từ đầu"} →
           </button>
+          )}
         </section>
       </div>
     );
@@ -319,9 +417,19 @@ export default function GrammarRun() {
         <button onClick={() => go(null)} className="text-sm text-slate-400 hover:text-slate-800">
           ← Tổng quan bài
         </button>
-        <span className="truncate text-sm text-slate-400">
-          {set.level} · {c.title}
-        </span>
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="truncate text-sm text-slate-400">
+            {set.level} · {c.title}
+          </span>
+          <button
+            onClick={() => openRegen(here)}
+            disabled={!!set.pending}
+            className="shrink-0 rounded-lg px-2.5 py-1 text-sm text-slate-500 ring-1 ring-slate-200 hover:text-indigo-600 hover:ring-indigo-300 disabled:opacity-40"
+            title="Soạn câu hỏi mới cho phần này"
+          >
+            ↻ Tạo lại phần này
+          </button>
+        </div>
       </div>
 
       {/* stepper: every part, its progress; jump anywhere */}
@@ -341,10 +449,19 @@ export default function GrammarRun() {
         ))}
       </nav>
 
+      {regenDialog}
+      {pendingBanner}
       {errors}
       {overview(false)}
 
-      {here === "multipleChoice" && (
+      {set.pending === here && (
+        <div className="mt-10 rounded-3xl bg-surface p-12 text-center ring-1 ring-slate-200">
+          <Spinner className="mx-auto h-8 w-8" />
+          <p className="mt-4 text-slate-500">Đang soạn câu hỏi mới cho phần này…</p>
+        </div>
+      )}
+
+      {set.pending !== here && here === "multipleChoice" && (
         <Section id="multipleChoice" score={sc.multipleChoice} checked={!!answers.checked.multipleChoice} onCheck={setChecked}>
           <ChoiceList
             questions={c.multipleChoice}
@@ -355,7 +472,7 @@ export default function GrammarRun() {
         </Section>
       )}
 
-      {here === "rearrange" && (
+      {set.pending !== here && here === "rearrange" && (
         <Section id="rearrange" score={sc.rearrange} checked={!!answers.checked.rearrange} onCheck={setChecked}>
           <ol className="space-y-5">
             {c.rearrange.map((q, i) => (
@@ -365,7 +482,7 @@ export default function GrammarRun() {
         </Section>
       )}
 
-      {here === "reading" && c.reading && (
+      {set.pending !== here && here === "reading" && c.reading && (
         <Section id="reading" score={sc.reading} checked={!!answers.checked.reading} onCheck={setChecked}>
           <article className="rounded-xl bg-slate-100 p-5">
             <h3 className="text-lg font-semibold text-slate-900">{c.reading.title}</h3>
@@ -379,7 +496,7 @@ export default function GrammarRun() {
         </Section>
       )}
 
-      {here === "listening" && c.listening && (
+      {set.pending !== here && here === "listening" && c.listening && (
         <Section id="listening" score={sc.listening} checked={!!answers.checked.listening} onCheck={setChecked}>
           <Listening
             listening={c.listening}
@@ -391,7 +508,7 @@ export default function GrammarRun() {
         </Section>
       )}
 
-      {here === "writing" && (
+      {set.pending !== here && here === "writing" && (
         <Writing
           set={set}
           tasks={c.writing}

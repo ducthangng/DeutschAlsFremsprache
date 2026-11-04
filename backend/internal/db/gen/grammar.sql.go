@@ -10,18 +10,29 @@ import (
 	"time"
 )
 
+const clearStaleGrammarPending = `-- name: ClearStaleGrammarPending :exec
+UPDATE grammar_sets SET pending = '' WHERE pending <> ''
+`
+
+func (q *Queries) ClearStaleGrammarPending(ctx context.Context) error {
+	_, err := q.db.Exec(ctx, clearStaleGrammarPending)
+	return err
+}
+
 const createGrammarSet = `-- name: CreateGrammarSet :one
-INSERT INTO grammar_sets (user_id, grammar, level, model, sections)
-VALUES ($1, $2, $3, $4, $5)
-RETURNING id, user_id, grammar, level, model, sections, status, error, content, audio_key, answers, writing_feedback, cost_usd, created_at, updated_at
+INSERT INTO grammar_sets (user_id, grammar, level, model, sections, vocab_level, vocabulary)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
+RETURNING id, user_id, grammar, level, model, sections, status, error, content, audio_key, answers, writing_feedback, cost_usd, created_at, updated_at, vocab_level, vocabulary, pending
 `
 
 type CreateGrammarSetParams struct {
-	UserID   int64
-	Grammar  string
-	Level    string
-	Model    string
-	Sections []byte
+	UserID     int64
+	Grammar    string
+	Level      string
+	Model      string
+	Sections   []byte
+	VocabLevel string
+	Vocabulary []byte
 }
 
 func (q *Queries) CreateGrammarSet(ctx context.Context, arg CreateGrammarSetParams) (GrammarSet, error) {
@@ -31,6 +42,8 @@ func (q *Queries) CreateGrammarSet(ctx context.Context, arg CreateGrammarSetPara
 		arg.Level,
 		arg.Model,
 		arg.Sections,
+		arg.VocabLevel,
+		arg.Vocabulary,
 	)
 	var i GrammarSet
 	err := row.Scan(
@@ -49,6 +62,9 @@ func (q *Queries) CreateGrammarSet(ctx context.Context, arg CreateGrammarSetPara
 		&i.CostUsd,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.VocabLevel,
+		&i.Vocabulary,
+		&i.Pending,
 	)
 	return i, err
 }
@@ -71,6 +87,23 @@ func (q *Queries) DeleteGrammarSet(ctx context.Context, arg DeleteGrammarSetPara
 	return result.RowsAffected(), nil
 }
 
+const failGrammarSection = `-- name: FailGrammarSection :exec
+UPDATE grammar_sets SET content = $1, cost_usd = cost_usd + $2::float8, pending = '', updated_at = now()
+WHERE id = $3
+`
+
+type FailGrammarSectionParams struct {
+	Content []byte
+	CostUsd float64
+	ID      int64
+}
+
+// A part that could not be generated: the old one stays, with the reason.
+func (q *Queries) FailGrammarSection(ctx context.Context, arg FailGrammarSectionParams) error {
+	_, err := q.db.Exec(ctx, failGrammarSection, arg.Content, arg.CostUsd, arg.ID)
+	return err
+}
+
 const failStaleGrammarSets = `-- name: FailStaleGrammarSets :exec
 UPDATE grammar_sets SET status = 'failed', error = 'máy chủ khởi động lại trong lúc tạo bài', updated_at = now()
 WHERE status = 'generating'
@@ -79,6 +112,42 @@ WHERE status = 'generating'
 // Generations cut short by a restart never finish; let the learner retry.
 func (q *Queries) FailStaleGrammarSets(ctx context.Context) error {
 	_, err := q.db.Exec(ctx, failStaleGrammarSets)
+	return err
+}
+
+const finishGrammarSection = `-- name: FinishGrammarSection :exec
+UPDATE grammar_sets
+SET content = $1, sections = $2, audio_key = $3,
+    cost_usd = cost_usd + $4::float8, pending = '', updated_at = now(),
+    answers = CASE WHEN answers IS NULL THEN NULL ELSE
+        answers || jsonb_build_object($5::text, '{}'::jsonb,
+                                      'checked', COALESCE(answers -> 'checked', '{}'::jsonb) - $5::text,
+                                      'progress', COALESCE(answers -> 'progress', '{}'::jsonb) - $5::text) END,
+    writing_feedback = CASE WHEN $5::text = 'writing' THEN NULL ELSE writing_feedback END
+WHERE id = $6
+`
+
+type FinishGrammarSectionParams struct {
+	Content  []byte
+	Sections []byte
+	AudioKey string
+	CostUsd  float64
+	Section  string
+	ID       int64
+}
+
+// Stores a newly generated part and starts it afresh: its answers, checked
+// flag and progress (and, for writing, the grading) are cleared in place so
+// answers saved meanwhile for other parts are kept.
+func (q *Queries) FinishGrammarSection(ctx context.Context, arg FinishGrammarSectionParams) error {
+	_, err := q.db.Exec(ctx, finishGrammarSection,
+		arg.Content,
+		arg.Sections,
+		arg.AudioKey,
+		arg.CostUsd,
+		arg.Section,
+		arg.ID,
+	)
 	return err
 }
 
@@ -111,7 +180,7 @@ func (q *Queries) FinishGrammarSet(ctx context.Context, arg FinishGrammarSetPara
 }
 
 const getGrammarSet = `-- name: GetGrammarSet :one
-SELECT id, user_id, grammar, level, model, sections, status, error, content, audio_key, answers, writing_feedback, cost_usd, created_at, updated_at FROM grammar_sets WHERE id = $1 AND user_id = $2
+SELECT id, user_id, grammar, level, model, sections, status, error, content, audio_key, answers, writing_feedback, cost_usd, created_at, updated_at, vocab_level, vocabulary, pending FROM grammar_sets WHERE id = $1 AND user_id = $2
 `
 
 type GetGrammarSetParams struct {
@@ -138,12 +207,15 @@ func (q *Queries) GetGrammarSet(ctx context.Context, arg GetGrammarSetParams) (G
 		&i.CostUsd,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.VocabLevel,
+		&i.Vocabulary,
+		&i.Pending,
 	)
 	return i, err
 }
 
 const listGrammarSets = `-- name: ListGrammarSets :many
-SELECT id, grammar, level, model, sections, status, error, COALESCE(content->>'title', '')::text AS title, cost_usd, created_at, updated_at,
+SELECT id, grammar, level, model, sections, status, error, pending, COALESCE(content->>'title', '')::text AS title, cost_usd, created_at, updated_at,
        (answers IS NOT NULL)::bool AS started, (answers -> 'progress')::jsonb AS progress
 FROM grammar_sets
 WHERE user_id = $1
@@ -158,6 +230,7 @@ type ListGrammarSetsRow struct {
 	Sections  []byte
 	Status    string
 	Error     string
+	Pending   string
 	Title     string
 	CostUsd   float64
 	CreatedAt time.Time
@@ -183,6 +256,7 @@ func (q *Queries) ListGrammarSets(ctx context.Context, userID int64) ([]ListGram
 			&i.Sections,
 			&i.Status,
 			&i.Error,
+			&i.Pending,
 			&i.Title,
 			&i.CostUsd,
 			&i.CreatedAt,
@@ -240,4 +314,24 @@ func (q *Queries) SaveGrammarWritingFeedback(ctx context.Context, arg SaveGramma
 		arg.UserID,
 	)
 	return err
+}
+
+const startGrammarSection = `-- name: StartGrammarSection :one
+UPDATE grammar_sets SET pending = $1::text, updated_at = now()
+WHERE id = $2 AND user_id = $3 AND status = 'ready' AND pending = ''
+RETURNING id
+`
+
+type StartGrammarSectionParams struct {
+	Section string
+	ID      int64
+	UserID  int64
+}
+
+// Claims the set for generating one part; no row when another part is under way.
+func (q *Queries) StartGrammarSection(ctx context.Context, arg StartGrammarSectionParams) (int64, error) {
+	row := q.db.QueryRow(ctx, startGrammarSection, arg.Section, arg.ID, arg.UserID)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }

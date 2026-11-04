@@ -80,6 +80,7 @@ export default function Pocket() {
         cards={review}
         listen={listen}
         onGraded={(v) => setEntries((es) => es?.map((x) => (x.id === v.id ? v : x)) ?? null)}
+        onDeleted={(id) => setEntries((es) => es?.filter((x) => x.id !== id) ?? null)}
         onExit={() => {
           setReview(null);
           reload();
@@ -547,13 +548,16 @@ function Review({
   cards,
   listen,
   onGraded,
+  onDeleted,
   onExit,
 }: {
   cards: VocabEntry[];
   listen: (v: VocabEntry) => void;
   onGraded: (v: VocabEntry) => void;
+  onDeleted: (id: number) => void;
   onExit: () => void;
 }) {
+  const dialog = useDialog();
   // Cards answered "again" come back at the end of the session.
   const [queue, setQueue] = useState(cards);
   const [done, setDone] = useState(0);
@@ -586,12 +590,31 @@ function Review({
     }
   }
 
+  /** Drop a card the learner no longer wants: from the Pocket and from this session. */
+  async function removeCard() {
+    if (!card || busy) return;
+    const ok = await dialog.confirm({ title: `Xoá thẻ "${card.term}"?`, message: "Thẻ và lịch ôn của nó sẽ bị xoá khỏi Pocket.", confirmText: "Xoá", danger: true });
+    if (!ok) return;
+    setBusy(true);
+    try {
+      await api.deleteVocab(card.id);
+      onDeleted(card.id);
+      setQueue((q) => q.filter((x) => x.id !== card.id));
+    } catch (e) {
+      dialog.alert("Không xoá được thẻ", e instanceof Error ? e.message : "");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const keys = useRef<(e: KeyboardEvent) => void>(() => {});
   keys.current = (e) => {
+    if (document.querySelector('[role="dialog"]')) return; // the confirm popup has the keyboard
     if (e.code === "Space") {
       e.preventDefault();
       setFlipped((f) => !f);
     } else if (flipped && ["1", "2", "3", "4"].includes(e.key)) grade(Number(e.key) as Grade);
+    else if (e.key === "Delete") removeCard();
     else if (e.key === "Escape") onExit();
   };
   useEffect(() => {
@@ -684,14 +707,19 @@ function Review({
           </div>
         )}
       </div>
-      {card.topicId && (
-        <p className="mt-6 text-center text-xs text-slate-400">
-          Từ topic:{" "}
-          <Link to={`/topics/${card.topicId}`} className="underline hover:text-slate-700">
-            xem ngữ cảnh
-          </Link>
-        </p>
-      )}
+      <div className="mt-6 flex items-center justify-center gap-4 text-xs text-slate-400">
+        {card.topicId && (
+          <span>
+            Từ topic:{" "}
+            <Link to={`/topics/${card.topicId}`} className="underline hover:text-slate-700">
+              xem ngữ cảnh
+            </Link>
+          </span>
+        )}
+        <button onClick={removeCard} disabled={busy} className="rounded-lg px-2 py-1 hover:bg-red-50 hover:text-red-500 disabled:opacity-40" title="Xoá thẻ (phím Delete)">
+          🗑 Xoá thẻ
+        </button>
+      </div>
     </div>
   );
 }

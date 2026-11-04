@@ -147,6 +147,7 @@ func (s *Server) Handler() http.Handler {
 	protected("GET /api/grammar/{id}", s.getGrammarSet)
 	protected("PUT /api/grammar/{id}/answers", s.saveGrammarAnswers)
 	protected("POST /api/grammar/{id}/writing", s.gradeGrammarWriting)
+	protected("POST /api/grammar/{id}/sections", s.addGrammarSection)
 	protected("DELETE /api/grammar/{id}", s.deleteGrammarSet)
 
 	protected("GET /api/recordings/{id}/audio", s.recordingAudio)

@@ -183,6 +183,58 @@ func TestGrammarSets(t *testing.T) {
 	if len(list) != 1 || list[0].Title != "Konjunktiv II" || !list[0].Started || math.Abs(list[0].CostUSD-6*0.00625) > 1e-9 {
 		t.Errorf("list: %+v", list)
 	}
+	// A part written again: new questions, its answers start afresh, the
+	// others are kept; the set's own words are used again.
+	c.json("PUT", path+"/answers", map[string]any{"answers": map[string]any{
+		"multipleChoice": map[string]int{"0": 1}, "rearrange": map[string]string{"0": "Ich würde"},
+		"checked": map[string]bool{"multipleChoice": true, "rearrange": true}, "progress": map[string]any{"rearrange": map[string]int{"answered": 1}}}}, nil)
+	for name, body := range map[string]map[string]any{
+		"bad section": {"section": "speaking", "count": 3},
+		"no count":    {"section": "rearrange", "count": 0},
+		"too many":    {"section": "writing", "count": 21},
+	} {
+		if code := c.json("POST", path+"/sections", body, nil); code != 400 {
+			t.Errorf("section %s: %d", name, code)
+		}
+	}
+	if code := intruder.json("POST", path+"/sections", map[string]any{"section": "rearrange", "count": 2}, nil); code != 404 {
+		t.Errorf("other user regenerates: %d", code)
+	}
+	regen := func(section string) {
+		t.Helper()
+		if code := c.json("POST", path+"/sections", map[string]any{"section": section, "count": 2}, &g); code != 202 || g.Pending != section {
+			t.Fatalf("regenerate %s: %d %+v", section, code, g)
+		}
+		for deadline := time.Now().Add(10 * time.Second); g.Pending != "" && time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+			g = store.GrammarSet{} // omitted fields must not keep their old values
+			c.json("GET", path, nil, &g)
+		}
+		if g.Pending != "" {
+			t.Fatalf("%s still pending", section)
+		}
+	}
+	regen("rearrange")
+	var answers struct {
+		MultipleChoice map[string]int
+		Rearrange      map[string]string
+		Checked        map[string]bool
+		Progress       map[string]any
+	}
+	json.Unmarshal(g.Answers, &answers)
+	if len(answers.Rearrange) != 0 || answers.Checked["rearrange"] || !answers.Checked["multipleChoice"] || answers.MultipleChoice["0"] != 1 || answers.Progress["rearrange"] != nil {
+		t.Errorf("answers after regenerating: %s", g.Answers)
+	}
+	if len(g.WritingFeedback) == 0 {
+		t.Error("writing grading lost when another part was regenerated")
+	}
+	regen("writing")
+	if len(g.WritingFeedback) != 0 && string(g.WritingFeedback) != "null" {
+		t.Errorf("old writing grading kept: %s", g.WritingFeedback)
+	}
+	if math.Abs(g.CostUSD-8*0.00625) > 1e-9 {
+		t.Errorf("cost after two parts: %v", g.CostUSD)
+	}
+
 	if code := c.json("DELETE", path, nil, nil); code != 204 {
 		t.Errorf("delete: %d", code)
 	}

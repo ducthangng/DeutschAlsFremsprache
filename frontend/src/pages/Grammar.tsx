@@ -52,6 +52,7 @@ function GrammarCard({ g, onDelete }: { g: GrammarSet; onDelete: () => void }) {
           <span className={ready ? (finished ? "text-emerald-600" : g.started ? "text-indigo-600" : "text-slate-400") : g.status === "failed" ? "text-red-500" : "text-amber-700"}>
             {ready ? (finished ? "✓ Đã xong" : g.started ? "Đang làm" : "Chưa làm") : g.status === "failed" ? "Lỗi" : "Đang tạo…"}
           </span>
+          {g.pending && <span className="text-amber-700"> · đang soạn 1 phần…</span>}
           <span className="text-slate-400"> · {new Date(g.createdAt).toLocaleDateString("vi-VN")}</span>
         </div>
         <h4 className="mt-1 pr-6 font-semibold leading-snug text-slate-900">{g.title || g.grammar}</h4>

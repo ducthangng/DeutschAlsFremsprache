@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -141,7 +142,7 @@ func (s *Server) createGrammarSet(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	sections, _ := json.Marshal(sec)
-	g, err := s.store.CreateGrammarSet(ctx, uid, in.Grammar, in.Level, m.ID, sections)
+	g, err := s.store.CreateGrammarSet(ctx, uid, in.Grammar, in.Level, m.ID, sections, in.VocabLevel, words)
 	if err != nil {
 		writeStoreError(w, err)
 		return
@@ -261,6 +262,177 @@ func (s *Server) generateGrammar(uid, id int64, m openai.Model, req openai.Gramm
 	raw, _ := json.Marshal(content)
 	if err := s.store.FinishGrammarSet(ctx, id, status, errMsg, raw, audioKey, cost); err != nil {
 		log.Printf("grammar %d save: %v", id, err)
+	}
+}
+
+// addGrammarSection adds a part the set does not have yet, or writes an
+// existing part again with new questions. It runs in the background like a
+// new set; the set's "pending" names the part until it is done.
+func (s *Server) addGrammarSection(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	if !s.openai.Enabled() {
+		writeError(w, http.StatusServiceUnavailable, "bài ngữ pháp cần OPENAI_API_KEY trên máy chủ")
+		return
+	}
+	var in struct {
+		Section string `json:"section"`
+		Count   int    `json:"count"`
+	}
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	var sec openai.GrammarSections
+	field := map[string]*int{"multipleChoice": &sec.MultipleChoice, "rearrange": &sec.Rearrange, "reading": &sec.Reading,
+		"listening": &sec.Listening, "writing": &sec.Writing}
+	limit := map[string]int{"multipleChoice": grammarLimits.MultipleChoice, "rearrange": grammarLimits.Rearrange, "reading": grammarLimits.Reading,
+		"listening": grammarLimits.Listening, "writing": grammarLimits.Writing}
+	n, known := field[in.Section]
+	switch {
+	case !known:
+		writeError(w, http.StatusBadRequest, "dạng bài không hợp lệ")
+		return
+	case in.Count < 1 || in.Count > limit[in.Section]:
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("số câu cần từ 1 đến %d", limit[in.Section]))
+		return
+	}
+	*n = in.Count
+	ctx, uid := r.Context(), auth.UserID(r.Context())
+	g, err := s.store.GetGrammarSet(ctx, uid, id)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	if err := s.store.StartGrammarSection(ctx, uid, id, in.Section); err != nil {
+		if errors.Is(err, store.ErrConflict) {
+			writeError(w, http.StatusConflict, "bài đang được soạn, hãy đợi phần đang tạo xong")
+			return
+		}
+		writeStoreError(w, err)
+		return
+	}
+	// Sets made with a model that is no longer offered continue on the default one.
+	m, ok := openai.GrammarModel(g.Model)
+	if !ok {
+		m = openai.GrammarModels[0]
+	}
+	go s.generateSection(uid, g, m, in.Section, openai.GrammarRequest{Grammar: g.Grammar, Level: g.Level, Sections: sec,
+		VocabLevel: g.VocabLevel, Vocabulary: g.Vocabulary})
+	g.Pending = in.Section
+	s.writeGrammarSet(w, r, g, http.StatusAccepted)
+}
+
+// generateSection writes one part (one retry) into the set's content. On
+// failure the old part stays and content.errors says why.
+func (s *Server) generateSection(uid int64, g *store.GrammarSet, m openai.Model, section string, req openai.GrammarRequest) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+	defer cancel()
+	id := g.ID
+	var c openai.GrammarContent
+	json.Unmarshal(g.Content, &c)
+	if c.Errors == nil {
+		c.Errors = map[string]string{}
+	}
+	cost := 0.0
+	gen := func() (u *openai.Usage, err error) {
+		switch section {
+		case "multipleChoice":
+			var title, overview string
+			var qs []openai.ChoiceQuestion
+			if title, overview, qs, u, err = s.openai.GrammarCore(ctx, m, req); err == nil {
+				c.MultipleChoice = qs
+				if c.Title == "" || c.Title == g.Grammar {
+					c.Title = title
+				}
+				if c.Overview == "" {
+					c.Overview = overview
+				}
+			}
+		case "rearrange":
+			var qs []openai.RearrangeQuestion
+			if qs, u, err = s.openai.GrammarRearrange(ctx, m, req); err == nil {
+				c.Rearrange = qs
+			}
+		case "reading":
+			var rd *openai.Reading
+			if rd, u, err = s.openai.GrammarReading(ctx, m, req); err == nil {
+				c.Reading = rd
+			}
+		case "listening":
+			var l *openai.Listening
+			if l, u, err = s.openai.GrammarListening(ctx, m, req); err == nil {
+				c.Listening = l
+			}
+		case "writing":
+			var ws []openai.WritingTask
+			if ws, u, err = s.openai.GrammarWriting(ctx, m, req); err == nil {
+				c.Writing = ws
+			}
+		}
+		return u, err
+	}
+	var err error
+	for range 2 {
+		var u *openai.Usage
+		u, err = gen()
+		if u != nil && u.InputTokens+u.OutputTokens > 0 {
+			if _, lerr := s.store.LogAIUsage(ctx, store.AIUsage{UserID: uid, Kind: "grammar", Model: u.Model, InputTokens: u.InputTokens,
+				OutputTokens: u.OutputTokens, CostUSD: u.CostUSD, GrammarSetID: &id}); lerr != nil {
+				log.Printf("log grammar usage: %v", lerr)
+			}
+			cost += u.CostUSD
+		}
+		if err == nil {
+			break
+		}
+		log.Printf("grammar %d %s (again): %v", id, section, err)
+	}
+	if err != nil {
+		c.Errors[section] = "không tạo được phần này: " + err.Error()
+		raw, _ := json.Marshal(c)
+		if err := s.store.FailGrammarSection(ctx, id, raw, cost); err != nil {
+			log.Printf("grammar %d save failed section: %v", id, err)
+		}
+		return
+	}
+	delete(c.Errors, section)
+	audioKey := g.AudioKey
+	if section == "listening" {
+		delete(c.Errors, "listeningAudio")
+		audioKey = ""
+		if s.speech.Enabled() {
+			key, ttsCost, err := s.listeningAudio(ctx, uid, id, c.Listening)
+			if err != nil {
+				log.Printf("grammar %d listening audio: %v", id, err)
+				c.Errors["listeningAudio"] = "không tạo được audio, trình duyệt sẽ đọc thay"
+			}
+			audioKey, cost = key, cost+ttsCost
+		}
+	}
+	if len(c.Errors) == 0 {
+		c.Errors = nil
+	}
+	// The requested counts follow what the set now has.
+	var sec openai.GrammarSections
+	json.Unmarshal(g.Sections, &sec)
+	switch section {
+	case "multipleChoice":
+		sec.MultipleChoice = len(c.MultipleChoice)
+	case "rearrange":
+		sec.Rearrange = len(c.Rearrange)
+	case "reading":
+		sec.Reading = len(c.Reading.Questions)
+	case "listening":
+		sec.Listening = len(c.Listening.Questions)
+	case "writing":
+		sec.Writing = len(c.Writing)
+	}
+	raw, _ := json.Marshal(c)
+	sections, _ := json.Marshal(sec)
+	if err := s.store.FinishGrammarSection(ctx, id, section, raw, sections, audioKey, cost); err != nil {
+		log.Printf("grammar %d save section: %v", id, err)
 	}
 }
 

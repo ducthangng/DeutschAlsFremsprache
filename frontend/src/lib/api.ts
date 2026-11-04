@@ -624,6 +624,8 @@ export interface GrammarSet {
   model: string;
   sections: GrammarSections;
   status: "generating" | "ready" | "failed";
+  /** The part being added or written again ("" = none). */
+  pending: "" | GrammarSection;
   error: string;
   title: string;
   costUsd: number;
@@ -895,4 +897,7 @@ export const api = {
   gradeGrammarWriting: (id: number, answers: string[]) =>
     json<{ writingFeedback: WritingFeedback; costUsd: number }>(`/grammar/${id}/writing`, "POST", { answers }),
   deleteGrammarSet: (id: number) => json<void>(`/grammar/${id}`, "DELETE"),
+  /** Add a part the set lacks, or write an existing part again (its answers start afresh). */
+  addGrammarSection: (id: number, section: GrammarSection, count: number) =>
+    json<GrammarSet>(`/grammar/${id}/sections`, "POST", { section, count }),
 };
