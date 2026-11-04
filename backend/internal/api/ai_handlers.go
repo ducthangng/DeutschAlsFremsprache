@@ -1,8 +1,10 @@
 package api
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -25,9 +27,70 @@ func textHash(text string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// voiceFor gives each dialogue speaker their own OpenAI voice.
-func voiceFor(speakers []string, it *store.Item) string {
-	return openai.VoiceFor(slices.Index(speakers, it.Speaker))
+// clipFor is the voice, TTS style and cache hash of an item's reference
+// audio: each speaker gets the voice the topic's cast chose for them (by
+// speaker order without a cast). The style is part of the hash, so a new cast
+// means new clips.
+func clipFor(cast *openai.VoiceCast, speakers []string, it *store.Item) (voice, style, hash string) {
+	voice, style = cast.For(it.Speaker, slices.Index(speakers, it.Speaker))
+	hash = textHash(it.Text)
+	if style != "" {
+		hash = textHash(style + "\n" + it.Text)
+	}
+	return voice, style, hash
+}
+
+// topicCast returns how the topic is read aloud, choosing the tone and voices
+// with OpenAI the first time. nil (default voices) when it cannot be chosen.
+func (s *Server) topicCast(ctx context.Context, uid int64, t *store.Topic, items []*store.Item) *openai.VoiceCast {
+	parse := func(raw string) *openai.VoiceCast {
+		var vc openai.VoiceCast
+		if raw == "" || json.Unmarshal([]byte(raw), &vc) != nil || !vc.Current() {
+			return nil // none yet, or made by older casting rules: cast again
+		}
+		return &vc
+	}
+	if vc := parse(t.VoiceCast); vc != nil {
+		return vc
+	}
+	v, err, _ := s.ttsFlight.Do(fmt.Sprintf("cast/%d", t.ID), func() (any, error) {
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+		defer cancel()
+		if cur, err := s.store.GetTopic(ctx, uid, t.ID); err == nil && parse(cur.VoiceCast) != nil {
+			return parse(cur.VoiceCast), nil // chosen by a request that started earlier
+		}
+		speakers := speakerOrder(items)
+		var sample []string
+		for _, it := range items {
+			if it.Speaker == "" && !slices.Contains(speakers, "") {
+				speakers = append(speakers, "")
+			}
+			if len(sample) < 40 { // enough lines to see how speakers address each other
+				sample = append(sample, strings.TrimPrefix(it.Speaker+": "+it.Text, ": "))
+			}
+		}
+		vc, u, err := s.openai.CastVoices(ctx, t.Language, t.Title, t.Description, speakers, sample)
+		if u != nil && u.InputTokens+u.OutputTokens > 0 {
+			topicID := t.ID
+			if _, lerr := s.store.LogAIUsage(ctx, store.AIUsage{UserID: uid, TopicID: &topicID, Kind: "voice", Model: u.Model,
+				InputTokens: u.InputTokens, OutputTokens: u.OutputTokens, CostUSD: u.CostUSD}); lerr != nil {
+				log.Printf("log voice cast usage: %v", lerr)
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+		raw, _ := json.Marshal(vc)
+		if err := s.store.SetTopicVoiceCast(ctx, t.ID, string(raw)); err != nil {
+			return nil, err
+		}
+		return vc, nil
+	})
+	if err != nil {
+		log.Printf("voice cast for topic %d: %v", t.ID, err)
+		return nil
+	}
+	return v.(*openai.VoiceCast)
 }
 
 // ---- script generation ----
@@ -201,13 +264,14 @@ func (s *Server) itemSpeech(w http.ResponseWriter, r *http.Request) {
 		writeStoreError(w, err)
 		return
 	}
-	model, voice, hash := s.openai.TTSModel(), voiceFor(speakerOrder(items), item), textHash(item.Text)
+	model := s.openai.TTSModel()
+	voice, style, hash := clipFor(s.topicCast(ctx, uid, t, items), speakerOrder(items), item)
 	resp := speechResponse{Voice: voice, Storage: s.media.Name(), Cached: true}
 
 	clip, err := s.store.GetTTSAudio(ctx, model, voice, hash)
 	if errors.Is(err, store.ErrNotFound) {
 		resp.Cached = false
-		clip, resp.CostUSD, err = s.generateSpeech(r, uid, t, item.Text, model, voice, hash)
+		clip, resp.CostUSD, err = s.generateSpeech(r, uid, t, item.Text, model, voice, style, hash)
 	}
 	if err != nil {
 		log.Printf("speech for item %d: %v", item.ID, err)
@@ -224,14 +288,14 @@ func (s *Server) itemSpeech(w http.ResponseWriter, r *http.Request) {
 
 // generateSpeech synthesizes, uploads and records one clip. Concurrent
 // requests for the same clip share a single OpenAI call.
-func (s *Server) generateSpeech(r *http.Request, uid int64, t *store.Topic, text, model, voice, hash string) (*store.TTSAudio, float64, error) {
+func (s *Server) generateSpeech(r *http.Request, uid int64, t *store.Topic, text, model, voice, style, hash string) (*store.TTSAudio, float64, error) {
 	ctx := r.Context()
 	type result struct {
 		clip *store.TTSAudio
 		cost float64
 	}
 	v, err, shared := s.ttsFlight.Do(model+"/"+voice+"/"+hash, func() (any, error) {
-		sp, err := s.openai.Synthesize(ctx, t.Language, voice, text)
+		sp, err := s.openai.Synthesize(ctx, t.Language, voice, style, text)
 		if err != nil {
 			return nil, err
 		}

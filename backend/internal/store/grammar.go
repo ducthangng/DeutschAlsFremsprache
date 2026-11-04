@@ -24,10 +24,12 @@ type GrammarSet struct {
 	AudioURL        string          `json:"audioUrl,omitempty"` // filled in by the API layer
 	Answers         json.RawMessage `json:"answers,omitempty"`
 	WritingFeedback json.RawMessage `json:"writingFeedback,omitempty"`
-	// List only: the learner has answered something.
-	Started   bool      `json:"started"`
-	CreatedAt time.Time `json:"createdAt"`
-	UpdatedAt time.Time `json:"updatedAt"`
+	// List only: the learner has answered something, and how far they got per
+	// section (written by the frontend with the answers).
+	Started   bool            `json:"started"`
+	Progress  json.RawMessage `json:"progress,omitempty"`
+	CreatedAt time.Time       `json:"createdAt"`
+	UpdatedAt time.Time       `json:"updatedAt"`
 }
 
 func toGrammarSet(r gen.GrammarSet) *GrammarSet {
@@ -65,7 +67,7 @@ func (s *Store) ListGrammarSets(ctx context.Context, userID int64) ([]*GrammarSe
 	out := make([]*GrammarSet, len(rows))
 	for i, r := range rows {
 		out[i] = &GrammarSet{ID: r.ID, Grammar: r.Grammar, Level: r.Level, Model: r.Model, Sections: r.Sections, Status: r.Status,
-			Error: r.Error, Title: r.Title, CostUSD: r.CostUsd, Started: r.Started, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt}
+			Error: r.Error, Title: r.Title, CostUSD: r.CostUsd, Started: r.Started, Progress: r.Progress, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt}
 	}
 	return out, nil
 }

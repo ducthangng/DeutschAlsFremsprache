@@ -27,6 +27,18 @@ func fakeOpenAI(t *testing.T, ttsCalls *atomic.Int32) *httptest.Server {
 		body, _ := io.ReadAll(r.Body)
 		switch r.URL.Path {
 		case "/v1/chat/completions":
+			if strings.Contains(string(body), "voice_cast") {
+				// Casting: Anna is cheerful, everyone else gets ash.
+				cast := `{"tone":"cheerful, lively","toneVi":"vui vẻ","speakers":[` +
+					`{"speaker":"Anna","gender":"female","voice":"nova","persona":"a cheerful young traveller"},` +
+					`{"speaker":"Herr Weber","gender":"male","voice":"ash","persona":"a friendly ticket clerk"},` +
+					`{"speaker":"A","gender":"unknown","voice":"not-a-voice","persona":"an interviewer"}]}`
+				json.NewEncoder(w).Encode(map[string]any{
+					"choices": []any{map[string]any{"message": map[string]any{"content": cast}, "finish_reason": "stop"}},
+					"usage":   map[string]int{"prompt_tokens": 100, "completion_tokens": 20},
+				})
+				return
+			}
 			if !strings.Contains(string(body), "json_schema") || !strings.Contains(string(body), "Fahrkarte") {
 				t.Errorf("unexpected chat request: %s", body)
 			}
@@ -44,7 +56,7 @@ func fakeOpenAI(t *testing.T, ttsCalls *atomic.Int32) *httptest.Server {
 			})
 		case "/v1/audio/speech":
 			ttsCalls.Add(1)
-			if !strings.Contains(string(body), `"response_format":"pcm"`) {
+			if !strings.Contains(string(body), `"response_format":"pcm"`) || !strings.Contains(string(body), "Mood of the whole text: cheerful, lively.") {
 				t.Errorf("unexpected speech request: %s", body)
 			}
 			w.Write(make([]byte, 48000)) // 1 s of 24 kHz 16-bit mono
@@ -109,13 +121,14 @@ func TestAIGenerationSpeechAndPublicTopics(t *testing.T) {
 	}
 	path := "/api/topics/" + itoa(tp.ID)
 	var d struct {
-		IsOwner bool
-		Items   []struct {
+		IsOwner   bool
+		VoiceTone string
+		Items     []struct {
 			ID           int64
 			SpeechCached *bool
 		}
 	}
-	if code := learner.json("GET", path, nil, &d); code != 200 || d.IsOwner || d.Items[0].SpeechCached == nil || *d.Items[0].SpeechCached {
+	if code := learner.json("GET", path, nil, &d); code != 200 || d.IsOwner || d.VoiceTone != "vui vẻ" || d.Items[0].SpeechCached == nil || *d.Items[0].SpeechCached {
 		t.Fatalf("learner detail: %d %+v", code, d)
 	}
 	if code := learner.json("PUT", path, topicInput{Title: "x", Language: "de-DE", Kind: "dialogue", Content: "A: x"}, nil); code != 404 {
@@ -128,7 +141,7 @@ func TestAIGenerationSpeechAndPublicTopics(t *testing.T) {
 	// 4. Speech: generated once (by the learner, who pays), then re-used.
 	var sp speechResponse
 	itemPath := "/api/items/" + itoa(d.Items[0].ID) + "/speech"
-	if code := learner.json("POST", itemPath, nil, &sp); code != 200 || sp.Cached || sp.DurationMs != 1000 || sp.CostUSD != 0.01 || sp.Voice != "coral" {
+	if code := learner.json("POST", itemPath, nil, &sp); code != 200 || sp.Cached || sp.DurationMs != 1000 || sp.CostUSD != 0.01 || sp.Voice != "nova" {
 		t.Fatalf("speech generate: %d %+v", code, sp)
 	}
 	resp, err := http.Get(srv.URL + sp.URL)

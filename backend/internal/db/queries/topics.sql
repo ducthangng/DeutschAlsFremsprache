@@ -65,8 +65,13 @@ RETURNING id;
 UPDATE topics
 SET title = sqlc.arg(title), description = sqlc.arg(description),
     language = sqlc.arg(language), kind = sqlc.arg(kind),
-    visibility = sqlc.arg(visibility), cover_key = sqlc.arg(cover_key), level = sqlc.arg(level), updated_at = now()
+    visibility = sqlc.arg(visibility), cover_key = sqlc.arg(cover_key), level = sqlc.arg(level), updated_at = now(),
+    voice_cast = CASE WHEN sqlc.arg(text_changed)::bool OR title <> sqlc.arg(title) OR description <> sqlc.arg(description)
+                      THEN '' ELSE voice_cast END
 WHERE id = sqlc.arg(id) AND user_id = sqlc.arg(user_id);
+
+-- name: SetTopicVoiceCast :exec
+UPDATE topics SET voice_cast = $2 WHERE id = $1;
 
 -- name: SetTopicVisibility :execrows
 UPDATE topics SET visibility = $3 WHERE id = $1 AND user_id = $2;

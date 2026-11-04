@@ -100,6 +100,8 @@ export interface TopicDetail extends Topic {
   content: string;
   speakers: string[];
   items: Item[];
+  /** Tone the generated reference speech was cast in (Vietnamese label). */
+  voiceTone?: string;
 }
 
 export interface TopicInput {
@@ -448,7 +450,7 @@ export interface ReviewLine {
 }
 
 export type CostPeriod = "today" | "7d" | "month" | "all";
-export type CostKind = "assess" | "script" | "tts" | "image" | "simulation" | "grammar" | "vocab" | "translate";
+export type CostKind = "assess" | "script" | "tts" | "image" | "simulation" | "grammar" | "vocab" | "voice" | "translate";
 export type CostScope = "topic" | "simulation" | "none";
 
 export interface CostSplit {
@@ -593,7 +595,21 @@ export interface GrammarAnswers {
   writing: Record<number, string>;
   /** Sections whose answers have been revealed. */
   checked: Partial<Record<GrammarSection, boolean>>;
+  /** Summary per section, saved with the answers so the list can show it. */
+  progress?: GrammarProgress;
 }
+
+/** How far the learner got in one section. */
+export interface GrammarPartProgress {
+  answered: number;
+  questions: number;
+  /** Once checked: correct answers (writing: points out of `max`). */
+  right: number;
+  max: number;
+  checked: boolean;
+}
+
+export type GrammarProgress = Partial<Record<GrammarSection, GrammarPartProgress>>;
 
 export interface WritingFeedback {
   /** The answers that were graded. */
@@ -616,6 +632,8 @@ export interface GrammarSet {
   answers?: GrammarAnswers | null;
   writingFeedback?: WritingFeedback | null;
   started: boolean;
+  /** List only: per-section progress, null before the first answer. */
+  progress?: GrammarProgress | null;
   createdAt: string;
   updatedAt: string;
 }

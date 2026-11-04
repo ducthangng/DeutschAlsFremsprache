@@ -1,5 +1,16 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 
+// Open modals lock page scrolling. A counter, not a saved-and-restored value:
+// modals that overlap (a confirm on top of a form) close in any order, and
+// restoring a stale "hidden" left the page unscrollable until reload.
+let scrollLocks = 0;
+function lockScroll() {
+  if (scrollLocks++ === 0) document.body.style.overflow = "hidden";
+}
+function unlockScroll() {
+  if (--scrollLocks === 0) document.body.style.overflow = "";
+}
+
 /** A centered popup with a dimmed, blurred backdrop. Esc or a backdrop click closes it. */
 export function Modal({
   open,
@@ -14,17 +25,19 @@ export function Modal({
   children: ReactNode;
   width?: string;
 }) {
+  // Callers pass inline handlers; keep the latest without re-running the effect.
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
   useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && closeRef.current();
     document.addEventListener("keydown", onKey);
-    const overflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+    lockScroll();
     return () => {
       document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = overflow;
+      unlockScroll();
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
   return (

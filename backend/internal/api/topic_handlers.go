@@ -7,6 +7,7 @@ import (
 	"unicode/utf8"
 
 	"deutschfremsprache/internal/auth"
+	"deutschfremsprache/internal/openai"
 	"deutschfremsprache/internal/store"
 	"deutschfremsprache/internal/topic"
 )
@@ -101,6 +102,7 @@ type topicDetail struct {
 	Content  string      `json:"content"`
 	Speakers []string    `json:"speakers"`
 	Items    []*itemView `json:"items"`
+	Voice    string      `json:"voiceTone,omitempty"` // tone of the generated reference speech (Vietnamese label)
 }
 
 // speakerOrder lists the dialogue speakers in order of first appearance; the
@@ -195,11 +197,18 @@ func (s *Server) getTopic(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d := &topicDetail{Topic: t, Speakers: speakerOrder(items), Items: make([]*itemView, len(items))}
-	var cached map[[2]string]bool
+	var (
+		cached map[[2]string]bool
+		cast   *openai.VoiceCast
+	)
 	if s.ttsEnabled(t.Language) {
+		cast = s.topicCast(ctx, uid, t, items)
+		if cast != nil {
+			d.Voice = cast.ToneVi
+		}
 		hashes := make([]string, len(items))
 		for i, it := range items {
-			hashes[i] = textHash(it.Text)
+			_, _, hashes[i] = clipFor(cast, d.Speakers, it)
 		}
 		if cached, err = s.store.CachedTTS(ctx, s.openai.TTSModel(), hashes); err != nil {
 			writeStoreError(w, err)
@@ -218,7 +227,8 @@ func (s *Server) getTopic(w http.ResponseWriter, r *http.Request) {
 			d.Items[i].Dictation = &b
 		}
 		if cached != nil {
-			c := cached[[2]string{voiceFor(d.Speakers, it), textHash(it.Text)}]
+			voice, _, hash := clipFor(cast, d.Speakers, it)
+			c := cached[[2]string{voice, hash}]
 			d.Items[i].SpeechCached = &c
 		}
 		lines[i] = topic.Line{Speaker: it.Speaker, Text: it.Text, Note: it.Note}

@@ -174,6 +174,7 @@ type Topic struct {
 	Visibility  string
 	CoverKey    string
 	Level       string
+	VoiceCast   string
 }
 
 type TopicCompletion struct {

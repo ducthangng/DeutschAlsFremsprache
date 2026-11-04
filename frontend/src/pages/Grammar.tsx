@@ -3,7 +3,6 @@ import { Link, useNavigate } from "react-router-dom";
 import { Modal, useDialog } from "../components/Dialog";
 import Spinner from "../components/Spinner";
 import { api, type GrammarModels, type GrammarSection, type GrammarSections, type GrammarSet, type VocabEntry } from "../lib/api";
-import { formatUsd } from "../lib/format";
 
 const LEVELS = ["A1", "A2", "B1", "B2", "C1", "C2"];
 
@@ -31,6 +30,70 @@ const DEFAULT_COUNTS: GrammarSections = { multipleChoice: 10, rearrange: 10, rea
 const MAX_WORDS = 80;
 
 const price = (v: number) => `$${v < 1 ? v.toFixed(2) : v.toFixed(v % 1 ? 2 : 0)}`;
+
+const LEVEL_COLOR: Record<string, string> = {
+  A: "bg-emerald-100 text-emerald-700",
+  B: "bg-amber-100 text-amber-700",
+  C: "bg-rose-100 text-rose-700",
+};
+
+/** A set in its level column: status, overall progress, and every part as a shortcut. */
+function GrammarCard({ g, onDelete }: { g: GrammarSet; onDelete: () => void }) {
+  const parts = SECTIONS.filter((x) => g.sections[x.key] > 0);
+  const p = g.progress ?? {};
+  const answered = parts.reduce((s, x) => s + (p[x.key]?.answered ?? 0), 0);
+  const questions = parts.reduce((s, x) => s + (p[x.key]?.questions ?? g.sections[x.key]), 0);
+  const finished = parts.length > 0 && parts.every((x) => p[x.key]?.checked);
+  const ready = g.status === "ready";
+  return (
+    <li className="relative rounded-2xl bg-surface ring-1 ring-slate-200 transition hover:ring-indigo-300">
+      <Link to={`/grammar/${g.id}`} className="block p-4 pb-3">
+        <div className="pr-8 text-xs">
+          <span className={ready ? (finished ? "text-emerald-600" : g.started ? "text-indigo-600" : "text-slate-400") : g.status === "failed" ? "text-red-500" : "text-amber-700"}>
+            {ready ? (finished ? "✓ Đã xong" : g.started ? "Đang làm" : "Chưa làm") : g.status === "failed" ? "Lỗi" : "Đang tạo…"}
+          </span>
+          <span className="text-slate-400"> · {new Date(g.createdAt).toLocaleDateString("vi-VN")}</span>
+        </div>
+        <h4 className="mt-1 pr-6 font-semibold leading-snug text-slate-900">{g.title || g.grammar}</h4>
+        {g.title && g.title !== g.grammar && <p className="text-sm text-slate-500">{g.grammar}</p>}
+        {ready && (
+          <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-slate-100" title={`${answered}/${questions} câu đã làm`}>
+            <div className={`h-full rounded-full ${finished ? "bg-emerald-500" : "bg-indigo-500"}`} style={{ width: `${questions ? (100 * answered) / questions : 0}%` }} />
+          </div>
+        )}
+      </Link>
+      {ready ? (
+        <div className="flex flex-wrap gap-1.5 px-4 pb-4">
+          {parts.map((x) => {
+            const q = p[x.key];
+            return (
+              <Link
+                key={x.key}
+                to={`/grammar/${g.id}?part=${x.key}`}
+                title={`${x.label}: làm phần này`}
+                className={`rounded-full px-2.5 py-1 text-xs ring-1 transition hover:ring-indigo-400 ${
+                  q?.checked ? "bg-emerald-50 text-emerald-700 ring-emerald-200" : "bg-slate-50 text-slate-600 ring-slate-200"
+                }`}
+              >
+                {x.icon} {q?.checked ? `${q.right}/${q.max}` : `${q?.answered ?? 0}/${q?.questions ?? g.sections[x.key]}`}
+              </Link>
+            );
+          })}
+        </div>
+      ) : (
+        <p className="px-4 pb-4 text-xs text-slate-400">{sectionSummary(g.sections)}</p>
+      )}
+      <button
+        onClick={onDelete}
+        className="absolute right-2 top-2 rounded-lg px-2 py-1 text-sm text-slate-400 transition hover:bg-red-50 hover:text-red-500"
+        title="Xoá bài"
+        aria-label={`Xoá bài ${g.title || g.grammar}`}
+      >
+        🗑
+      </button>
+    </li>
+  );
+}
 
 export function sectionSummary(s: GrammarSections) {
   return SECTIONS.filter((x) => s[x.key] > 0)
@@ -141,36 +204,25 @@ export default function Grammar() {
           </button>
         </div>
       )}
-      <ul className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-        {sets?.map((g) => (
-          <li key={g.id} className="relative">
-            <Link to={`/grammar/${g.id}`} className="block h-full rounded-2xl bg-surface p-5 ring-1 ring-slate-200 transition hover:ring-indigo-300">
-              <div className="flex items-center gap-2 pr-10 text-xs text-slate-400">
-                <span>
-                  {g.level} · {new Date(g.createdAt).toLocaleDateString("vi-VN")}
-                </span>
-                <span className={g.status === "ready" ? "text-emerald-600" : g.status === "failed" ? "text-red-500" : "text-amber-700"}>
-                  · {g.status === "ready" ? (g.started ? "Đang làm" : "Sẵn sàng") : g.status === "failed" ? "Lỗi" : "Đang tạo…"}
-                </span>
-              </div>
-              <h3 className="mt-2 pr-8 font-semibold text-slate-900">{g.title || g.grammar}</h3>
-              {g.title && g.title !== g.grammar && <p className="text-sm text-slate-500">{g.grammar}</p>}
-              <p className="mt-3 text-xs text-slate-400">{sectionSummary(g.sections)}</p>
-              <p className="mt-1 text-xs text-slate-400">
-                {g.model} · ≈ {formatUsd(g.costUsd)}
-              </p>
-            </Link>
-            <button
-              onClick={() => remove(g)}
-              className="absolute right-3 top-3 rounded-lg px-2 py-1 text-sm text-slate-400 transition hover:bg-red-50 hover:text-red-500"
-              title="Xoá bài"
-              aria-label={`Xoá bài ${g.title || g.grammar}`}
-            >
-              🗑
-            </button>
-          </li>
-        ))}
-      </ul>
+      {/* one column per level, A1 → C2: pick a set (or straight a part of it) */}
+      <div className="-mx-4 flex snap-x gap-4 overflow-x-auto px-4 pb-4">
+        {LEVELS.filter((lv) => sets?.some((g) => g.level === lv)).map((lv) => {
+          const inLevel = sets!.filter((g) => g.level === lv);
+          return (
+            <section key={lv} className="w-[19rem] shrink-0 snap-start" aria-label={`Trình độ ${lv}`}>
+              <h3 className="mb-2 flex items-baseline gap-2 px-1">
+                <span className={`rounded-md px-2 py-0.5 text-sm font-bold ${LEVEL_COLOR[lv[0]]}`}>{lv}</span>
+                <span className="text-sm text-slate-400">{inLevel.length} bài</span>
+              </h3>
+              <ul className="space-y-3">
+                {inLevel.map((g) => (
+                  <GrammarCard key={g.id} g={g} onDelete={() => remove(g)} />
+                ))}
+              </ul>
+            </section>
+          );
+        })}
+      </div>
 
       <Modal open={creating} onClose={() => !busy && setCreating(false)} title="Tạo bài ngữ pháp" width="max-w-3xl">
         <div className="-mx-6 max-h-[75vh] overflow-y-auto px-6 pb-1">

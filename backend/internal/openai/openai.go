@@ -190,7 +190,8 @@ type Speech struct {
 }
 
 // Synthesize renders text with the configured TTS model and returns a WAV.
-func (c *Client) Synthesize(ctx context.Context, language, voice, text string) (*Speech, error) {
+// style (may be empty) adds tone and character to the instructions.
+func (c *Client) Synthesize(ctx context.Context, language, voice, style, text string) (*Speech, error) {
 	body := map[string]any{
 		"model":           c.cfg.TTSModel,
 		"voice":           voice,
@@ -199,7 +200,8 @@ func (c *Client) Synthesize(ctx context.Context, language, voice, text string) (
 	}
 	if !strings.HasPrefix(c.cfg.TTSModel, "tts-1") { // only newer models accept instructions
 		lang := map[string]string{"de-DE": "standard German (Hochdeutsch)", "en-US": "American English"}[language]
-		body["instructions"] = "Speak in clear, natural " + lang + " with accurate pronunciation, at a calm pace suitable for language learners to repeat."
+		body["instructions"] = strings.TrimSpace("Speak in clear, natural " + lang + " with accurate pronunciation, slightly slower than everyday speech so learners can repeat. " +
+			"Keep natural intonation and emotion that fit the text; never sound flat, bored or sad unless the text is sad. " + style)
 	}
 	pcm, err := c.post(ctx, "/audio/speech", body)
 	if err != nil {

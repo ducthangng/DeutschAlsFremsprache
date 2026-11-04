@@ -437,7 +437,7 @@ func (s *Server) turnSpeech(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		voice := openai.VoiceFor(int(simID % int64(len(openai.Voices))))
-		sp, err := s.openai.Synthesize(ctx, sim.Language, voice, t.Text)
+		sp, err := s.openai.Synthesize(ctx, sim.Language, voice, "", t.Text)
 		if err != nil {
 			writeError(w, http.StatusBadGateway, "không tạo được giọng đọc: "+err.Error())
 			return

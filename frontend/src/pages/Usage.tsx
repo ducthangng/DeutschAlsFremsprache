@@ -21,6 +21,7 @@ const KINDS: Record<CostKind, { label: string; icon: string; color: string }> = 
   simulation: { label: "Mô phỏng (LLM)", icon: "💬", color: "bg-amber-100 text-amber-700" },
   grammar: { label: "Ngữ pháp (LLM)", icon: "📘", color: "bg-sky-100 text-sky-700" },
   vocab: { label: "Chuẩn hoá từ (LLM)", icon: "🔤", color: "bg-lime-100 text-lime-700" },
+  voice: { label: "Chọn giọng đọc (LLM)", icon: "🎭", color: "bg-fuchsia-100 text-fuchsia-700" },
   translate: { label: "Dịch nghĩa", icon: "🌐", color: "bg-emerald-100 text-emerald-700" },
 };
 

@@ -50,6 +50,7 @@ type Topic struct {
 	CoverKey    string    `json:"coverKey"`
 	CoverURL    string    `json:"coverUrl"` // filled in by the API layer
 	Level       string    `json:"level"`    // CEFR A1..C2, "" if not set
+	VoiceCast   string    `json:"-"`        // JSON openai.VoiceCast, "" until chosen
 	CreatedAt   time.Time `json:"createdAt"`
 	UpdatedAt   time.Time `json:"updatedAt"`
 	ItemCount   int       `json:"itemCount"`
@@ -168,7 +169,7 @@ func (s *Store) UserByID(ctx context.Context, id int64) (*User, error) {
 // The three topic queries return identically shaped rows.
 func toTopic(r gen.GetTopicForViewerRow, viewerID int64) *Topic {
 	t := &Topic{ID: r.ID, UserID: r.UserID, Title: r.Title, Description: r.Description, Language: r.Language, Kind: r.Kind,
-		Visibility: r.Visibility, CoverKey: r.CoverKey, Level: r.Level, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, ItemCount: int(r.ItemCount),
+		Visibility: r.Visibility, CoverKey: r.CoverKey, Level: r.Level, VoiceCast: r.VoiceCast, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, ItemCount: int(r.ItemCount),
 		PassedCount: int(r.PassedCount), DictationPassedCount: int(r.DictationPassedCount), OwnerName: r.OwnerName,
 		IsOwner: r.UserID == viewerID, Completions: int(r.Completions), TotalCost: r.TotalCostUsd}
 	if r.LastPracticedAt.Unix() > 0 {
@@ -306,16 +307,22 @@ func (s *Store) UpdateTopic(ctx context.Context, t *Topic, lines []topic.Line) (
 		files []string
 	)
 	err := s.inTx(ctx, func(q *gen.Queries) error {
-		n, err := q.UpdateTopic(ctx, gen.UpdateTopicParams{ID: t.ID, UserID: t.UserID, Title: t.Title, Description: t.Description, Language: t.Language, Kind: t.Kind, Visibility: t.Visibility, CoverKey: t.CoverKey, Level: t.Level})
+		existing, err := q.ListItemsByTopic(ctx, t.ID)
+		if err != nil {
+			return err
+		}
+		// A new text gets a new voice cast.
+		changed := len(existing) != len(lines)
+		for i := 0; !changed && i < len(lines); i++ {
+			changed = existing[i].Speaker != lines[i].Speaker || existing[i].Text != lines[i].Text
+		}
+		n, err := q.UpdateTopic(ctx, gen.UpdateTopicParams{ID: t.ID, UserID: t.UserID, Title: t.Title, Description: t.Description, Language: t.Language, Kind: t.Kind,
+			Visibility: t.Visibility, CoverKey: t.CoverKey, Level: t.Level, TextChanged: changed})
 		if err != nil {
 			return err
 		}
 		if n == 0 {
 			return ErrNotFound
-		}
-		existing, err := q.ListItemsByTopic(ctx, t.ID)
-		if err != nil {
-			return err
 		}
 		pool := map[string][]int64{}
 		for _, it := range existing {
@@ -354,6 +361,11 @@ func (s *Store) UpdateTopic(ctx context.Context, t *Topic, lines []topic.Line) (
 		return nil, nil, mapErr(err)
 	}
 	return out, files, nil
+}
+
+// SetTopicVoiceCast stores how the topic is read aloud (JSON).
+func (s *Store) SetTopicVoiceCast(ctx context.Context, id int64, cast string) error {
+	return s.q.SetTopicVoiceCast(ctx, gen.SetTopicVoiceCastParams{ID: id, VoiceCast: cast})
 }
 
 // DeleteTopic removes the topic and returns audio files that should be deleted.

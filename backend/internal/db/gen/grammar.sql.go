@@ -144,7 +144,7 @@ func (q *Queries) GetGrammarSet(ctx context.Context, arg GetGrammarSetParams) (G
 
 const listGrammarSets = `-- name: ListGrammarSets :many
 SELECT id, grammar, level, model, sections, status, error, COALESCE(content->>'title', '')::text AS title, cost_usd, created_at, updated_at,
-       (answers IS NOT NULL)::bool AS started
+       (answers IS NOT NULL)::bool AS started, (answers -> 'progress')::jsonb AS progress
 FROM grammar_sets
 WHERE user_id = $1
 ORDER BY created_at DESC
@@ -163,6 +163,7 @@ type ListGrammarSetsRow struct {
 	CreatedAt time.Time
 	UpdatedAt time.Time
 	Started   bool
+	Progress  []byte
 }
 
 func (q *Queries) ListGrammarSets(ctx context.Context, userID int64) ([]ListGrammarSetsRow, error) {
@@ -187,6 +188,7 @@ func (q *Queries) ListGrammarSets(ctx context.Context, userID int64) ([]ListGram
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.Started,
+			&i.Progress,
 		); err != nil {
 			return nil, err
 		}

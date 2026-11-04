@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useDialog } from "../components/Dialog";
 import SelectionLookup from "../components/SelectionLookup";
 import Spinner from "../components/Spinner";
@@ -8,6 +8,8 @@ import {
   type ChoiceQuestion,
   type GrammarAnswers,
   type GrammarContent,
+  type GrammarPartProgress,
+  type GrammarProgress,
   type GrammarSection,
   type GrammarSet,
   type ListeningQuestion,
@@ -47,6 +49,39 @@ function scores(c: GrammarContent, a: GrammarAnswers, writingPoints: number | nu
   return out;
 }
 
+/** Answered, correct and checked per section, for the overview and the list of sets. */
+export function progressOf(c: GrammarContent, a: GrammarAnswers, fb: GrammarSet["writingFeedback"]): GrammarProgress {
+  const filled = (r: Record<number, number | string>) => Object.values(r).filter((v) => typeof v === "number" || v.trim()).length;
+  const sc = scores(c, a, fb ? fb.items.reduce((s, x) => s + x.score, 0) : null);
+  const out: GrammarProgress = {};
+  const add = (k: GrammarSection, questions: number) => {
+    if (questions === 0) return;
+    const s = sc[k];
+    out[k] = { answered: Math.min(filled(a[k]), questions), questions, right: s?.right ?? 0, max: s?.total ?? questions, checked: !!a.checked[k] };
+  };
+  add("multipleChoice", c.multipleChoice.length);
+  add("rearrange", c.rearrange.length);
+  add("reading", c.reading?.questions.length ?? 0);
+  add("listening", c.listening?.questions.length ?? 0);
+  add("writing", c.writing.length);
+  if (out.writing) out.writing.checked = !!fb;
+  return out;
+}
+
+/** "3/10 câu" while working, the score once checked. */
+export function ProgressBadge({ p, className = "" }: { p?: GrammarPartProgress; className?: string }) {
+  if (!p) return null;
+  if (p.checked) {
+    const good = p.right / p.max >= 0.7;
+    return <span className={`font-semibold ${good ? "text-emerald-600" : "text-amber-600"} ${className}`}>✓ {p.right}/{p.max}</span>;
+  }
+  return (
+    <span className={`text-slate-400 ${className}`}>
+      {p.answered}/{p.questions}
+    </span>
+  );
+}
+
 function listeningCorrect(q: ListeningQuestion, a: number | string | undefined) {
   return q.kind === "choice" ? a === q.answer : typeof a === "string" && matches(a, q.accepted);
 }
@@ -73,7 +108,10 @@ export default function GrammarRun() {
           if (!alive) return;
           setSet(g);
           if (g.status === "generating") timer = window.setTimeout(load, 2500);
-          else if (g.answers) setAnswers({ ...EMPTY, ...g.answers });
+          else if (g.answers) {
+            dirty.current = !g.answers.progress; // sets from before progress tracking: save it once
+            setAnswers({ ...EMPTY, ...g.answers });
+          }
         },
         (e) => alive && setError(e.message),
       );
@@ -84,12 +122,21 @@ export default function GrammarRun() {
     };
   }, [id]);
 
-  // Save answers shortly after the learner stops typing.
+  // Save answers (with their progress summary) shortly after the learner stops typing.
+  const content = set?.content;
+  const feedback = set?.writingFeedback ?? null;
   useEffect(() => {
-    if (!dirty.current) return;
-    const t = setTimeout(() => api.saveGrammarAnswers(id, answers).catch(() => {}), 800);
+    if (!dirty.current || !content) return;
+    const t = setTimeout(() => api.saveGrammarAnswers(id, { ...answers, progress: progressOf(content, answers, feedback) }).catch(() => {}), 800);
     return () => clearTimeout(t);
-  }, [id, answers]);
+  }, [id, answers, content, feedback]);
+
+  // One part per page: ?part=<section>; without it, the overview.
+  const [params, setParams] = useSearchParams();
+  const part = params.get("part") as GrammarSection | null;
+  useEffect(() => {
+    window.scrollTo({ top: 0 });
+  }, [part]);
 
   const update = (fn: (a: GrammarAnswers) => GrammarAnswers) => {
     dirty.current = true;
@@ -165,59 +212,139 @@ export default function GrammarRun() {
   const fb = set.writingFeedback ?? null;
   const writingPoints = fb ? fb.items.reduce((s, x) => s + x.score, 0) : null;
   const sc = scores(c, answers, writingPoints);
-  const present = SECTIONS.filter((x) => sc[x.key] || (x.key === "writing" && c.writing.length));
+  const progress = progressOf(c, answers, fb);
+  const present = SECTIONS.filter((x) => progress[x.key]);
+  const current = present.findIndex((x) => x.key === part);
+  const go = (k: GrammarSection | null) => setParams(k ? { part: k } : {});
+  const done = (k: GrammarSection) => !!progress[k]?.checked;
+  const nextTodo = present.find((x) => !done(x.key)) ?? null;
+  const answeredAll = present.reduce((s, x) => s + progress[x.key]!.answered, 0);
+  const questionsAll = present.reduce((s, x) => s + progress[x.key]!.questions, 0);
 
+  const errors = c.errors && Object.keys(c.errors).length > 0 && (
+    <div className="mt-4 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-800">
+      {Object.entries(c.errors).map(([k, v]) => (
+        <p key={k}>
+          ⚠ {SECTIONS.find((x) => x.key === k)?.label ?? (k === "listeningAudio" ? "Audio bài nghe" : "Phần giải thích")}: {v}
+        </p>
+      ))}
+    </div>
+  );
+  const overview = (open: boolean) =>
+    c.overview && (
+      <details className="mt-6 rounded-2xl bg-surface p-5 ring-1 ring-slate-200" open={open}>
+        <summary className="cursor-pointer font-semibold text-slate-900">📘 Kiến thức cần nhớ</summary>
+        <p className="mt-3 whitespace-pre-line leading-relaxed text-slate-600">{c.overview}</p>
+      </details>
+    );
+
+  // ---- overview: theory, the parts with their progress, where to continue ----
+  if (current < 0) {
+    return (
+      <div className="mx-auto max-w-4xl px-4 pb-24 pt-8">
+        {back}
+        <header className="mt-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
+            {set.level} · {set.grammar}
+          </p>
+          <h1 className="mt-1 text-3xl font-bold text-slate-900">{c.title}</h1>
+          <p className="mt-1 text-xs text-slate-400">
+            {set.model} · chi phí ≈ {formatUsd(set.costUsd)}
+          </p>
+        </header>
+        {errors}
+        {overview(!set.started)}
+
+        <section className="mt-8">
+          <div className="mb-3 flex items-baseline justify-between gap-3">
+            <h2 className="text-lg font-semibold text-slate-900">Các phần của bài</h2>
+            <span className="text-sm text-slate-400">
+              {present.filter((x) => done(x.key)).length}/{present.length} phần xong · {answeredAll}/{questionsAll} câu đã làm
+            </span>
+          </div>
+          <ol className="space-y-2">
+            {present.map((x, i) => {
+              const p = progress[x.key]!;
+              return (
+                <li key={x.key}>
+                  <button
+                    onClick={() => go(x.key)}
+                    className="flex w-full items-center gap-4 rounded-2xl bg-surface px-5 py-4 text-left ring-1 ring-slate-200 transition hover:ring-indigo-300"
+                  >
+                    <span
+                      className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-semibold ${
+                        p.checked ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"
+                      }`}
+                    >
+                      {p.checked ? "✓" : i + 1}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block font-medium text-slate-900">
+                        {x.icon} {x.label}
+                      </span>
+                      <span className="mt-1.5 block h-1.5 overflow-hidden rounded-full bg-slate-100">
+                        <span
+                          className={`block h-full rounded-full ${p.checked ? "bg-emerald-500" : "bg-indigo-500"}`}
+                          style={{ width: `${(100 * p.answered) / p.questions}%` }}
+                        />
+                      </span>
+                    </span>
+                    <ProgressBadge p={p} className="shrink-0 text-sm" />
+                    <span className="shrink-0 text-slate-300">›</span>
+                  </button>
+                </li>
+              );
+            })}
+          </ol>
+          <button
+            onClick={() => go((nextTodo ?? present[0]).key)}
+            className="mt-6 w-full rounded-xl bg-indigo-600 px-5 py-3 font-semibold text-white hover:bg-indigo-500 sm:w-auto"
+          >
+            {!set.started ? "Bắt đầu" : nextTodo ? `Tiếp tục: ${nextTodo.label}` : "Xem lại từ đầu"} →
+          </button>
+        </section>
+      </div>
+    );
+  }
+
+  // ---- one part ----
+  const prev = present[current - 1];
+  const next = present[current + 1];
+  const here = present[current].key;
   return (
     <div className="mx-auto max-w-4xl px-4 pb-24 pt-8">
       {/* double-click a German word: listen, meaning, save to the Pocket */}
       <SelectionLookup language="de-DE" rate={prefs.rate} voiceURI={prefs.voice["de-DE"] || undefined} />
-      {back}
-      <header className="mt-4">
-        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
-          {set.level} · {set.grammar}
-        </p>
-        <h1 className="mt-1 text-3xl font-bold text-slate-900">{c.title}</h1>
-        <p className="mt-1 text-xs text-slate-400">
-          {set.model} · chi phí ≈ {formatUsd(set.costUsd)}
-        </p>
-      </header>
+      <div className="flex items-center justify-between gap-4">
+        <button onClick={() => go(null)} className="text-sm text-slate-400 hover:text-slate-800">
+          ← Tổng quan bài
+        </button>
+        <span className="truncate text-sm text-slate-400">
+          {set.level} · {c.title}
+        </span>
+      </div>
 
-      {/* section navigation with scores of checked sections */}
-      <nav className="sticky top-14 z-10 -mx-4 mt-6 flex gap-2 overflow-x-auto bg-slate-50/85 px-4 py-2 backdrop-blur no-scrollbar">
-        {present.map((x) => {
-          const s = sc[x.key];
-          const done = answers.checked[x.key] || (x.key === "writing" && fb);
-          return (
-            <a key={x.key} href={`#${x.key}`} className="whitespace-nowrap rounded-full bg-surface px-3 py-1.5 text-sm text-slate-600 ring-1 ring-slate-200 hover:ring-indigo-300">
-              {x.icon} {x.label}
-              {done && s && (
-                <b className="ml-1.5 text-indigo-700">
-                  {s.right}/{s.total}
-                </b>
-              )}
-            </a>
-          );
-        })}
+      {/* stepper: every part, its progress; jump anywhere */}
+      <nav className="sticky top-14 z-10 -mx-4 mt-4 flex gap-2 overflow-x-auto bg-slate-50/85 px-4 py-2 backdrop-blur no-scrollbar">
+        {present.map((x, i) => (
+          <button
+            key={x.key}
+            onClick={() => go(x.key)}
+            aria-current={i === current ? "step" : undefined}
+            className={`flex items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1.5 text-sm ring-1 transition ${
+              i === current ? "bg-indigo-600 text-white ring-indigo-600" : "bg-surface text-slate-600 ring-slate-200 hover:ring-indigo-300"
+            }`}
+          >
+            <span className={i === current ? "text-white/70" : "text-slate-400"}>{i + 1}.</span> {x.icon} {x.label}
+            {i !== current && <ProgressBadge p={progress[x.key]} className="ml-1 text-xs" />}
+          </button>
+        ))}
       </nav>
 
-      {c.errors && Object.keys(c.errors).length > 0 && (
-        <div className="mt-4 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-800">
-          {Object.entries(c.errors).map(([k, v]) => (
-            <p key={k}>
-              ⚠ {SECTIONS.find((x) => x.key === k)?.label ?? (k === "listeningAudio" ? "Audio bài nghe" : "Phần giải thích")}: {v}
-            </p>
-          ))}
-        </div>
-      )}
+      {errors}
+      {overview(false)}
 
-      {c.overview && (
-        <details className="mt-6 rounded-2xl bg-surface p-5 ring-1 ring-slate-200" open={!set.started}>
-          <summary className="cursor-pointer font-semibold text-slate-900">📘 Kiến thức cần nhớ</summary>
-          <p className="mt-3 whitespace-pre-line leading-relaxed text-slate-600">{c.overview}</p>
-        </details>
-      )}
-
-      {c.multipleChoice.length > 0 && (
+      {here === "multipleChoice" && (
         <Section id="multipleChoice" score={sc.multipleChoice} checked={!!answers.checked.multipleChoice} onCheck={setChecked}>
           <ChoiceList
             questions={c.multipleChoice}
@@ -228,7 +355,7 @@ export default function GrammarRun() {
         </Section>
       )}
 
-      {c.rearrange.length > 0 && (
+      {here === "rearrange" && (
         <Section id="rearrange" score={sc.rearrange} checked={!!answers.checked.rearrange} onCheck={setChecked}>
           <ol className="space-y-5">
             {c.rearrange.map((q, i) => (
@@ -238,7 +365,7 @@ export default function GrammarRun() {
         </Section>
       )}
 
-      {c.reading && c.reading.questions.length > 0 && (
+      {here === "reading" && c.reading && (
         <Section id="reading" score={sc.reading} checked={!!answers.checked.reading} onCheck={setChecked}>
           <article className="rounded-xl bg-slate-100 p-5">
             <h3 className="text-lg font-semibold text-slate-900">{c.reading.title}</h3>
@@ -252,7 +379,7 @@ export default function GrammarRun() {
         </Section>
       )}
 
-      {c.listening && c.listening.questions.length > 0 && (
+      {here === "listening" && c.listening && (
         <Section id="listening" score={sc.listening} checked={!!answers.checked.listening} onCheck={setChecked}>
           <Listening
             listening={c.listening}
@@ -264,15 +391,37 @@ export default function GrammarRun() {
         </Section>
       )}
 
-      {c.writing.length > 0 && (
+      {here === "writing" && (
         <Writing
           set={set}
           tasks={c.writing}
           answers={answers.writing}
           onAnswer={(i, v) => answer("writing", i, v)}
-          onGraded={(writingFeedback, costUsd) => setSet((g) => g && { ...g, writingFeedback, costUsd: g.costUsd + costUsd })}
+          onGraded={(writingFeedback, costUsd) => {
+            setSet((g) => g && { ...g, writingFeedback, costUsd: g.costUsd + costUsd });
+            dirty.current = true; // save the new writing score with the progress
+          }}
         />
       )}
+
+      {/* move on: highlighted once this part is checked */}
+      <div className="mt-8 flex items-center justify-between gap-3">
+        {prev ? (
+          <button onClick={() => go(prev.key)} className="rounded-xl px-4 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-800">
+            ← {prev.label}
+          </button>
+        ) : (
+          <span />
+        )}
+        <button
+          onClick={() => go(next ? next.key : null)}
+          className={`rounded-xl px-5 py-2.5 font-semibold transition ${
+            done(here) ? "bg-indigo-600 text-white shadow-lg shadow-indigo-600/20 hover:bg-indigo-500" : "text-slate-600 ring-1 ring-slate-200 hover:bg-slate-100"
+          }`}
+        >
+          {next ? `Phần tiếp theo: ${next.label} →` : "Xem kết quả cả bài →"}
+        </button>
+      </div>
     </div>
   );
 }

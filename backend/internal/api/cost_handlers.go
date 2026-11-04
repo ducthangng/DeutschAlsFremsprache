@@ -122,6 +122,9 @@ func (s *Server) providers() []provider {
 		provider{Feature: "Chuẩn hoá từ tiếng Đức khi lưu vào Pocket (mạo từ, chủ ngữ)", Kind: "vocab", Vendor: vendorOA,
 			API: "Chat Completions: " + c.OpenAIChatModel, Price: fmt.Sprintf("$%g / $%g mỗi 1M token vào / ra", c.OpenAIChatUSDPerMIn, c.OpenAIChatUSDPerMOut),
 			Active: oa, Fallback: "Lưu nguyên từ như đã chọn"},
+		provider{Feature: "Chọn giọng đọc hợp tông topic (mỗi topic một lần)", Kind: "voice", Vendor: vendorOA,
+			API: "Chat Completions: " + c.OpenAIChatModel, Price: fmt.Sprintf("$%g / $%g mỗi 1M token vào / ra", c.OpenAIChatUSDPerMIn, c.OpenAIChatUSDPerMOut),
+			Active: oa, Fallback: "Giọng mặc định theo thứ tự vai"},
 		provider{Feature: "Ảnh AI", Kind: "image", Vendor: vendorOA, API: "Images: " + c.OpenAIImageModel,
 			Price: fmt.Sprintf("$%g / ảnh", c.OpenAIImageUSD), Active: oa, Fallback: "Tắt (cần OPENAI_API_KEY)"},
 	)
@@ -135,7 +138,7 @@ func ttsPrice(c config.Config) string {
 	return fmt.Sprintf("$%g / phút audio", c.OpenAITTSUSDPerMinute)
 }
 
-var costKinds = []string{"assess", "script", "tts", "image", "simulation", "grammar", "vocab", "translate"}
+var costKinds = []string{"assess", "script", "tts", "image", "simulation", "grammar", "vocab", "voice", "translate"}
 
 const costPageSize = 50
 

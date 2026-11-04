@@ -60,6 +60,8 @@ export default function Practice() {
   const [openaiTts, setOpenaiTts] = useState(false);
   const [speechStatus, setSpeechStatus] = useState<SpeechStatus>("");
   const [costs, setCosts] = useState<TopicCost[] | null>(null);
+  // "Tạo audio cả bài": progress while generating every missing clip.
+  const [bulkAudio, setBulkAudio] = useState<{ done: number; total: number; failed: number; running: boolean } | null>(null);
   // Congratulations popup after finishing the topic, for the mode that was finished.
   const [completed, setCompleted] = useState<"shadow" | "write" | null>(null);
   const sessionStart = useRef(new Date().toISOString());
@@ -379,6 +381,32 @@ export default function Practice() {
     }
   }
 
+  /** Generates the reference audio of every line that has none yet, a few at a time. */
+  async function generateAllSpeech() {
+    const missing = topic!.items.filter((it) => it.speechCached === false);
+    if (missing.length === 0) return;
+    const state = { done: 0, total: missing.length, failed: 0, running: true };
+    setBulkAudio({ ...state });
+    let next = 0;
+    const worker = async () => {
+      while (next < missing.length) {
+        const item = missing[next++];
+        try {
+          const clip = await api.speech(item.id);
+          speechClips.current.set(item.id, { clip, at: Date.now() });
+          setTopic((t) => t && { ...t, items: t.items.map((it) => (it.id === item.id ? { ...it, speechCached: true } : it)) });
+        } catch {
+          state.failed++;
+        }
+        state.done++;
+        setBulkAudio({ ...state });
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(3, missing.length) }, worker));
+    setBulkAudio({ ...state, running: false });
+    refreshCosts();
+  }
+
   function playTake() {
     if (!take) return;
     playback.current?.stop();
@@ -430,6 +458,7 @@ export default function Practice() {
   const mine = isMine(item);
   const busy = phase === "playing" || phase === "recording" || phase === "assessing";
   const generatedVoice = openaiTts;
+  const missingAudio = items.filter((it) => it.speechCached === false).length;
   const totalCost = costs ? costs.reduce((sum, c) => sum + c.totalCostUsd, 0) : topic.totalCostUsd;
 
   return (
@@ -461,6 +490,32 @@ export default function Practice() {
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1 pt-6">
+          {generatedVoice && (missingAudio > 0 || bulkAudio) && (
+            <button
+              onClick={generateAllSpeech}
+              disabled={bulkAudio?.running || missingAudio === 0}
+              className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm text-slate-600 hover:bg-surface hover:ring-1 hover:ring-slate-200 disabled:hover:bg-transparent disabled:hover:ring-0"
+              title={
+                bulkAudio?.running
+                  ? "Đang tạo giọng đọc mẫu cho các câu còn thiếu"
+                  : missingAudio > 0
+                    ? `Tạo trước giọng đọc mẫu cho ${missingAudio} câu chưa có audio`
+                    : "Tất cả các câu đã có audio"
+              }
+            >
+              {bulkAudio?.running ? (
+                <>
+                  <Spinner className="h-4 w-4" /> Đang tạo audio {bulkAudio.done}/{bulkAudio.total}
+                </>
+              ) : missingAudio > 0 ? (
+                <>
+                  🔊 {bulkAudio?.failed ? `Thử lại ${missingAudio} câu lỗi` : missingAudio === items.length ? "Tạo audio cả bài" : `Tạo audio còn thiếu (${missingAudio})`}
+                </>
+              ) : (
+                <span className="text-emerald-600">✓ Đã có audio cả bài</span>
+              )}
+            </button>
+          )}
           <button
             onClick={() => setAddVocab(true)}
             className="rounded-lg px-3 py-1.5 text-sm text-slate-600 hover:bg-surface hover:ring-1 hover:ring-slate-200"
@@ -472,7 +527,9 @@ export default function Practice() {
             <div className="space-y-4">
               <SpeedControl compact rate={prefs.rate} onChange={(rate) => setPrefs({ rate })} />
               {generatedVoice ? (
-                <p className="text-slate-500">Giọng: OpenAI TTS (mỗi vai một giọng)</p>
+                <p className="text-slate-500">
+                  Giọng: OpenAI TTS, mỗi vai một giọng{topic.voiceTone ? <> · tông {topic.voiceTone}</> : ""}
+                </p>
               ) : (
                 <VoiceSelect
                   language={topic.language}

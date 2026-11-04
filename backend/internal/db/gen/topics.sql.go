@@ -75,7 +75,7 @@ func (q *Queries) DeleteTopic(ctx context.Context, arg DeleteTopicParams) (int64
 }
 
 const getTopicForViewer = `-- name: GetTopicForViewer :one
-SELECT t.id, t.user_id, t.title, t.description, t.language, t.kind, t.created_at, t.updated_at, t.visibility, t.cover_key, t.level, u.name AS owner_name,
+SELECT t.id, t.user_id, t.title, t.description, t.language, t.kind, t.created_at, t.updated_at, t.visibility, t.cover_key, t.level, t.voice_cast, u.name AS owner_name,
        (SELECT COUNT(*) FROM items i WHERE i.topic_id = t.id)::int AS item_count,
        (SELECT COUNT(DISTINCT r.item_id) FROM recordings r JOIN items i ON i.id = r.item_id
          WHERE i.topic_id = t.id AND r.user_id = $1)::int AS passed_count,
@@ -109,6 +109,7 @@ type GetTopicForViewerRow struct {
 	Visibility           string
 	CoverKey             string
 	Level                string
+	VoiceCast            string
 	OwnerName            string
 	ItemCount            int32
 	PassedCount          int32
@@ -134,6 +135,7 @@ func (q *Queries) GetTopicForViewer(ctx context.Context, arg GetTopicForViewerPa
 		&i.Visibility,
 		&i.CoverKey,
 		&i.Level,
+		&i.VoiceCast,
 		&i.OwnerName,
 		&i.ItemCount,
 		&i.PassedCount,
@@ -146,7 +148,7 @@ func (q *Queries) GetTopicForViewer(ctx context.Context, arg GetTopicForViewerPa
 }
 
 const listPublicTopics = `-- name: ListPublicTopics :many
-SELECT t.id, t.user_id, t.title, t.description, t.language, t.kind, t.created_at, t.updated_at, t.visibility, t.cover_key, t.level, u.name AS owner_name,
+SELECT t.id, t.user_id, t.title, t.description, t.language, t.kind, t.created_at, t.updated_at, t.visibility, t.cover_key, t.level, t.voice_cast, u.name AS owner_name,
        (SELECT COUNT(*) FROM items i WHERE i.topic_id = t.id)::int AS item_count,
        (SELECT COUNT(DISTINCT r.item_id) FROM recordings r JOIN items i ON i.id = r.item_id
          WHERE i.topic_id = t.id AND r.user_id = $1)::int AS passed_count,
@@ -177,6 +179,7 @@ type ListPublicTopicsRow struct {
 	Visibility           string
 	CoverKey             string
 	Level                string
+	VoiceCast            string
 	OwnerName            string
 	ItemCount            int32
 	PassedCount          int32
@@ -207,6 +210,7 @@ func (q *Queries) ListPublicTopics(ctx context.Context, viewerID int64) ([]ListP
 			&i.Visibility,
 			&i.CoverKey,
 			&i.Level,
+			&i.VoiceCast,
 			&i.OwnerName,
 			&i.ItemCount,
 			&i.PassedCount,
@@ -227,7 +231,7 @@ func (q *Queries) ListPublicTopics(ctx context.Context, viewerID int64) ([]ListP
 
 const listTopicsByUser = `-- name: ListTopicsByUser :many
 
-SELECT t.id, t.user_id, t.title, t.description, t.language, t.kind, t.created_at, t.updated_at, t.visibility, t.cover_key, t.level, u.name AS owner_name,
+SELECT t.id, t.user_id, t.title, t.description, t.language, t.kind, t.created_at, t.updated_at, t.visibility, t.cover_key, t.level, t.voice_cast, u.name AS owner_name,
        (SELECT COUNT(*) FROM items i WHERE i.topic_id = t.id)::int AS item_count,
        (SELECT COUNT(DISTINCT r.item_id) FROM recordings r JOIN items i ON i.id = r.item_id
          WHERE i.topic_id = t.id AND r.user_id = $1)::int AS passed_count,
@@ -257,6 +261,7 @@ type ListTopicsByUserRow struct {
 	Visibility           string
 	CoverKey             string
 	Level                string
+	VoiceCast            string
 	OwnerName            string
 	ItemCount            int32
 	PassedCount          int32
@@ -289,6 +294,7 @@ func (q *Queries) ListTopicsByUser(ctx context.Context, userID int64) ([]ListTop
 			&i.Visibility,
 			&i.CoverKey,
 			&i.Level,
+			&i.VoiceCast,
 			&i.OwnerName,
 			&i.ItemCount,
 			&i.PassedCount,
@@ -323,6 +329,20 @@ func (q *Queries) SetTopicVisibility(ctx context.Context, arg SetTopicVisibility
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const setTopicVoiceCast = `-- name: SetTopicVoiceCast :exec
+UPDATE topics SET voice_cast = $2 WHERE id = $1
+`
+
+type SetTopicVoiceCastParams struct {
+	ID        int64
+	VoiceCast string
+}
+
+func (q *Queries) SetTopicVoiceCast(ctx context.Context, arg SetTopicVoiceCastParams) error {
+	_, err := q.db.Exec(ctx, setTopicVoiceCast, arg.ID, arg.VoiceCast)
+	return err
 }
 
 const topicCostsByUser = `-- name: TopicCostsByUser :many
@@ -389,8 +409,10 @@ const updateTopic = `-- name: UpdateTopic :execrows
 UPDATE topics
 SET title = $1, description = $2,
     language = $3, kind = $4,
-    visibility = $5, cover_key = $6, level = $7, updated_at = now()
-WHERE id = $8 AND user_id = $9
+    visibility = $5, cover_key = $6, level = $7, updated_at = now(),
+    voice_cast = CASE WHEN $8::bool OR title <> $1 OR description <> $2
+                      THEN '' ELSE voice_cast END
+WHERE id = $9 AND user_id = $10
 `
 
 type UpdateTopicParams struct {
@@ -401,6 +423,7 @@ type UpdateTopicParams struct {
 	Visibility  string
 	CoverKey    string
 	Level       string
+	TextChanged bool
 	ID          int64
 	UserID      int64
 }
@@ -414,6 +437,7 @@ func (q *Queries) UpdateTopic(ctx context.Context, arg UpdateTopicParams) (int64
 		arg.Visibility,
 		arg.CoverKey,
 		arg.Level,
+		arg.TextChanged,
 		arg.ID,
 		arg.UserID,
 	)

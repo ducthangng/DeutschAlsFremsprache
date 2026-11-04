@@ -8,7 +8,7 @@ SELECT * FROM grammar_sets WHERE id = $1 AND user_id = $2;
 
 -- name: ListGrammarSets :many
 SELECT id, grammar, level, model, sections, status, error, COALESCE(content->>'title', '')::text AS title, cost_usd, created_at, updated_at,
-       (answers IS NOT NULL)::bool AS started
+       (answers IS NOT NULL)::bool AS started, (answers -> 'progress')::jsonb AS progress
 FROM grammar_sets
 WHERE user_id = $1
 ORDER BY created_at DESC;
