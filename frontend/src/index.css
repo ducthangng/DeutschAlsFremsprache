@@ -69,6 +69,29 @@
 
 body {
   background: var(--color-slate-50);
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* No double-tap-to-zoom delay on controls (iOS). */
+button,
+a,
+[role="button"],
+summary {
+  touch-action: manipulation;
+}
+
+/*
+ * iOS zooms into any field with text under 16px when it gets focus and does
+ * not zoom back out, which leaves the page cropped. Unlayered, so it wins over
+ * Tailwind's text-sm/text-xs utilities.
+ */
+@media (max-width: 639px) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  select,
+  textarea {
+    font-size: 16px;
+  }
 }
 
 /* Quiet scrollbars, including the horizontal topic rows. */

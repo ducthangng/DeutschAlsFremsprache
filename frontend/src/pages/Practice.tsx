@@ -81,6 +81,7 @@ export default function Practice() {
   const recorder = useRef<Recorder | null>(null);
   const stream = useRef<MediaStream | null>(null);
   const advanceTimer = useRef<number>();
+  const scriptList = useRef<HTMLOListElement>(null);
   const speechClips = useRef(new Map<number, { clip: SpeechClip; at: number }>());
   const passedThisSession = useRef(new Set<number>());
   const completedThisSession = useRef(false);
@@ -434,9 +435,17 @@ export default function Practice() {
   }, []);
 
   // Keep the active line visible in the script.
+  // Only the script list scrolls: scrollIntoView would also move the page, and on
+  // phones (script below the stage) that jumped away from the practice card.
   useEffect(() => {
-    document.getElementById(`line-${index}`)?.scrollIntoView({ block: "nearest", behavior: "smooth" });
-  }, [index]);
+    const list = scriptList.current;
+    const line = document.getElementById(`line-${index}`);
+    if (!list || !line) return;
+    const top = line.offsetTop; // the list is the offset parent (relative)
+    if (top < list.scrollTop) list.scrollTo({ top, behavior: "smooth" });
+    else if (top + line.offsetHeight > list.scrollTop + list.clientHeight)
+      list.scrollTo({ top: top + line.offsetHeight - list.clientHeight, behavior: "smooth" });
+  }, [index, topic?.id]);
 
   if (loadError) {
     return (
@@ -462,22 +471,22 @@ export default function Practice() {
   const totalCost = costs ? costs.reduce((sum, c) => sum + c.totalCostUsd, 0) : topic.totalCostUsd;
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-8">
+    <div className="mx-auto max-w-6xl px-4 py-5 sm:py-8">
       {topic.coverUrl && (
         // Soft, blurred cover behind the page: atmosphere without distraction.
-        <div className="pointer-events-none fixed inset-0 -z-10 overflow-hidden" aria-hidden>
+        <div className="pointer-events-none fixed inset-0 -z-10 hidden overflow-hidden sm:block" aria-hidden>
           <img src={topic.coverUrl} alt="" className="h-full w-full scale-110 object-cover opacity-[0.12] blur-3xl" />
         </div>
       )}
       <SelectionLookup language={topic.language} rate={prefs.rate} voiceURI={prefs.voice[topic.language] || undefined} topicId={topic.id} />
 
       {/* Header: title + one line of context; settings and extras tucked away */}
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
         <div className="min-w-0">
           <Link to={topic.isOwner ? "/topics" : "/public"} className="text-sm text-slate-400 hover:text-slate-700">
             ← {topic.isOwner ? "Topic của tôi" : "Topic công khai"}
           </Link>
-          <h1 className="mt-1 truncate text-2xl font-bold sm:text-3xl">{topic.title}</h1>
+          <h1 className="mt-1 break-words text-2xl font-bold sm:truncate sm:text-3xl">{topic.title}</h1>
           <p className="mt-1 text-sm text-slate-500">
             {LANGUAGES[topic.language].flag} {topic.kind === "dialogue" ? "Hội thoại" : "Từ vựng"} ·{" "}
             <span className="text-emerald-600">
@@ -489,7 +498,7 @@ export default function Practice() {
             <AvatarStack people={people} label="người đã luyện" size={24} />
           </div>
         </div>
-        <div className="flex shrink-0 items-center gap-1 pt-6">
+        <div className="-ml-3 flex flex-wrap items-center gap-1 sm:ml-0 sm:shrink-0 sm:pt-6">
           {generatedVoice && (missingAudio > 0 || bulkAudio) && (
             <button
               onClick={generateAllSpeech}
@@ -604,7 +613,7 @@ export default function Practice() {
 
 
       {/* Mode: speak along, or listen and write */}
-      <div className="mt-6 inline-flex rounded-xl bg-surface p-1 ring-1 ring-slate-200">
+      <div className="mt-4 inline-flex rounded-xl bg-surface p-1 ring-1 ring-slate-200 sm:mt-6">
         {(
           [
             ["shadow", "🗣 Shadowing"],
@@ -641,7 +650,7 @@ export default function Practice() {
       <div className="mt-6 grid gap-6 lg:grid-cols-5">
         {/* Stage */}
         <section className="lg:col-span-3">
-          <div className="rounded-3xl bg-surface p-6 shadow-sm ring-1 ring-slate-200 sm:p-10">
+          <div className="rounded-3xl bg-surface p-4 shadow-sm ring-1 ring-slate-200 sm:p-10">
             <div className="flex items-center justify-between text-sm text-slate-400">
               <span className="tabular-nums">
                 {index + 1} / {items.length}
@@ -656,8 +665,8 @@ export default function Practice() {
 
             {item.imageUrl && <img src={item.imageUrl} alt="" className="mt-6 max-h-64 w-full rounded-2xl object-cover" />}
 
-            <div className="mt-6 flex items-start gap-4">
-              <p data-lookup data-sentence={item.text} data-image={item.imageKey} className="min-h-[5rem] flex-1 text-3xl font-medium leading-snug selection:bg-amber-200 sm:text-4xl">
+            <div className="mt-4 flex items-start gap-3 sm:mt-6 sm:gap-4">
+              <p lang={topic.language} data-lookup data-sentence={item.text} data-image={item.imageKey} className="min-h-[4rem] min-w-0 flex-1 text-2xl font-medium leading-snug break-words hyphens-auto selection:bg-amber-200 sm:min-h-[5rem] sm:text-4xl">
                 {phase === "result" && result ? (
                   <AssessedText tokens={result.tokens} />
                 ) : (
@@ -677,15 +686,15 @@ export default function Practice() {
               </button>
             </div>
             {meaningOf(item) && (
-              <p className="mt-3 text-lg text-slate-400" title={item.note ? undefined : "Máy dịch"}>
+              <p className="mt-3 text-base text-slate-400 sm:text-lg" title={item.note ? undefined : "Máy dịch"}>
                 {meaningOf(item)}
               </p>
             )}
 
             {/* Controls: one obvious action per state */}
-            <div className="mt-10">
+            <div className="mt-6 sm:mt-10">
               {phase === "idle" && (
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <button
                     onClick={() => runLine(index)}
                     className="rounded-xl bg-indigo-600 px-6 py-3 font-semibold text-white shadow-lg shadow-indigo-200 hover:bg-indigo-500"
@@ -745,7 +754,7 @@ export default function Practice() {
 
               {phase === "result" && result && (
                 <div className="space-y-6">
-                  <div className="flex items-center gap-3">
+                  <div className="flex flex-wrap items-center gap-3">
                     <span className={`rounded-full px-3 py-1 text-sm font-semibold ${result.passed ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}`}>
                       {result.passed ? "✓ Đạt" : `Chưa đạt · cần ${result.threshold}`}
                     </span>
@@ -837,7 +846,7 @@ export default function Practice() {
           <div className="rounded-2xl bg-surface p-3 ring-1 ring-slate-200">
             <h2 className="px-2 pb-2 pt-1 text-sm font-semibold text-slate-400">Kịch bản</h2>
             {translateError && <p className="mx-2 mb-2 rounded bg-amber-50 px-2 py-1 text-xs text-amber-800">Không tải được bản dịch: {translateError}</p>}
-            <ol className="max-h-[70vh] space-y-0.5 overflow-y-auto">
+            <ol ref={scriptList} className="relative max-h-[60vh] space-y-0.5 overflow-y-auto overscroll-contain lg:max-h-[70vh]">
               {items.map((it, i) => (
                 <li key={it.id} id={`line-${i}`}>
                   <div
@@ -870,7 +879,7 @@ export default function Practice() {
                     >
                       {replaying === it.id ? "■" : "🔊"}
                     </button>
-                    <span className="min-w-0 flex-1">
+                    <span className="min-w-0 flex-1 break-words">
                       <span data-lookup data-sentence={it.text} data-image={it.imageKey} className="selection:bg-amber-200">
                         {it.speaker && <span className={`font-semibold ${speakerColor(it.speaker)}`}>{it.speaker}: </span>}
                         <span className={i === index ? "text-slate-900" : "text-slate-600"}>{it.text}</span>

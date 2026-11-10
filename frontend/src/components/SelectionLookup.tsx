@@ -60,13 +60,13 @@ export default function SelectionLookup({ language, rate, voiceURI, topicId }: P
     const close = () => setSel(null);
     document.addEventListener("mouseup", onUp);
     document.addEventListener("touchend", onUp);
-    document.addEventListener("mousedown", onDown);
+    document.addEventListener("pointerdown", onDown);
     document.addEventListener("keydown", onKey);
     window.addEventListener("scroll", close, true);
     return () => {
       document.removeEventListener("mouseup", onUp);
       document.removeEventListener("touchend", onUp);
-      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("pointerdown", onDown);
       document.removeEventListener("keydown", onKey);
       window.removeEventListener("scroll", close, true);
     };
@@ -112,7 +112,8 @@ export default function SelectionLookup({ language, rate, voiceURI, topicId }: P
     }
   }
 
-  const left = Math.min(Math.max(sel.x, 170), window.innerWidth - 170);
+  const half = Math.min(160, window.innerWidth / 2 - 8);
+  const left = Math.min(Math.max(sel.x, half + 8), window.innerWidth - half - 8);
   const above = sel.y > 180;
   const btn = "rounded-lg px-2.5 py-1.5 text-sm font-medium hover:bg-slate-100 disabled:opacity-50";
 
@@ -121,7 +122,7 @@ export default function SelectionLookup({ language, rate, voiceURI, topicId }: P
       ref={popup}
       onMouseDown={(e) => e.preventDefault()} // keep the text selection while clicking buttons
       style={{ left, top: above ? sel.y - 10 : sel.y + 34, transform: `translate(-50%, ${above ? "-100%" : "0"})` }}
-      className="fixed z-50 w-80 rounded-xl bg-surface p-3 shadow-xl ring-1 ring-slate-200"
+      className="fixed z-50 w-[min(20rem,calc(100vw-1rem))] rounded-xl bg-surface p-3 shadow-xl ring-1 ring-slate-200"
       role="dialog"
       aria-label="Tra từ"
     >

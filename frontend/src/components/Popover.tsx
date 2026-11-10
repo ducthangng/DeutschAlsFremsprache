@@ -19,12 +19,13 @@ export default function Popover({
 
   useEffect(() => {
     if (!open) return;
-    const onDown = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && setOpen(false);
+    // pointerdown: iOS does not send mousedown for taps on non-clickable areas.
+    const onDown = (e: PointerEvent) => !ref.current?.contains(e.target as Node) && setOpen(false);
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
-    document.addEventListener("mousedown", onDown);
+    document.addEventListener("pointerdown", onDown);
     document.addEventListener("keydown", onKey);
     return () => {
-      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("pointerdown", onDown);
       document.removeEventListener("keydown", onKey);
     };
   }, [open]);
@@ -42,7 +43,10 @@ export default function Popover({
         {label}
       </button>
       {open && (
-        <div className={`absolute z-30 mt-2 ${width} rounded-xl bg-surface p-4 text-sm shadow-xl ring-1 ring-slate-200 ${align === "right" ? "right-0" : "left-0"}`}>
+        <div
+          // Phones: a full-width sheet under the header, so it never runs off the screen edge.
+          className={`z-30 max-h-[calc(100dvh-6rem)] overflow-y-auto rounded-xl bg-surface p-4 text-sm shadow-xl ring-1 ring-slate-200 max-sm:fixed max-sm:inset-x-3 max-sm:top-16 max-sm:w-auto sm:absolute sm:mt-2 ${width} ${align === "right" ? "sm:right-0" : "sm:left-0"}`}
+        >
           {typeof children === "function" ? children(close) : children}
         </div>
       )}
