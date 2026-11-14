@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { ColumnChart, GoalRing, MasteryBar, StatTile } from "../components/Charts";
+import BulkVocabDialog from "../components/BulkVocabDialog";
 import Cover from "../components/Cover";
 import { Modal, useDialog } from "../components/Dialog";
 import ImagePicker from "../components/ImagePicker";
@@ -52,6 +53,7 @@ export default function Pocket() {
   const [canDraw, setCanDraw] = useState(false);
   const [prefs, setPrefs] = usePrefs();
   const [editor, setEditor] = useState<VocabEntry | "new" | null>(null); // the add / edit popup
+  const [bulk, setBulk] = useState(false); // add many words at once
   const playback = useRef<Playback | null>(null);
 
   const reload = () => {
@@ -99,6 +101,12 @@ export default function Pocket() {
         <div className="flex flex-wrap items-center gap-3">
           <button onClick={() => setEditor("new")} className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500">
             ＋ Thêm từ
+          </button>
+          <button
+            onClick={() => setBulk(true)}
+            className="rounded-xl px-4 py-2 text-sm font-semibold text-indigo-700 ring-1 ring-indigo-200 hover:bg-indigo-50"
+          >
+            ＋ Thêm nhiều từ
           </button>
           <div className="inline-flex rounded-xl bg-surface p-1 ring-1 ring-slate-200">
             {(
@@ -148,8 +156,24 @@ export default function Pocket() {
         />
       )}
 
+      {bulk && (
+        <BulkVocabDialog
+          existing={entries ?? []}
+          onClose={() => setBulk(false)}
+          onAdded={(added) => {
+            setEntries((es) => [...added, ...(es ?? [])]);
+            api.vocabStats().then(setStats, () => {});
+            setTab("words");
+          }}
+        />
+      )}
+
       {editor && (
         <VocabDialog
+          onBulk={() => {
+            setEditor(null);
+            setBulk(true);
+          }}
           entry={editor === "new" ? null : editor}
           onClose={() => setEditor(null)}
           onSaved={(v, isNew) => {
@@ -313,7 +337,17 @@ function Overview({
 const emptyForm = (language: Language): VocabInput => ({ language, term: "", meaning: "", example: "", imageKey: "" });
 
 /** Popup to add a word to the pocket by hand, or edit one. */
-function VocabDialog({ entry, onClose, onSaved }: { entry: VocabEntry | null; onClose: () => void; onSaved: (v: VocabEntry, isNew: boolean) => void }) {
+function VocabDialog({
+  entry,
+  onClose,
+  onSaved,
+  onBulk,
+}: {
+  entry: VocabEntry | null;
+  onClose: () => void;
+  onSaved: (v: VocabEntry, isNew: boolean) => void;
+  onBulk: () => void;
+}) {
   const [form, setForm] = useState<VocabInput>(() =>
     entry ? { language: entry.language, term: entry.term, meaning: entry.meaning, example: entry.example, imageKey: entry.imageKey } : emptyForm("de-DE"),
   );
@@ -407,7 +441,12 @@ function VocabDialog({ entry, onClose, onSaved }: { entry: VocabEntry | null; on
         />
         {msg && <p className="text-sm text-red-600">{msg}</p>}
         {added && !msg && <p className="text-sm text-emerald-600">✓ Đã thêm “{added}”. Thêm từ tiếp theo, hoặc đóng.</p>}
-        <div className="flex justify-end gap-2 pt-1">
+        <div className="flex flex-wrap items-center justify-end gap-2 pt-1">
+          {!entry && (
+            <button type="button" onClick={onBulk} className="mr-auto text-sm text-indigo-700 hover:underline">
+              Thêm nhiều từ cùng lúc →
+            </button>
+          )}
           <button type="button" onClick={onClose} className="rounded-xl px-4 py-2 text-sm text-slate-600 hover:bg-slate-100">
             {added ? "Xong" : "Huỷ"}
           </button>
