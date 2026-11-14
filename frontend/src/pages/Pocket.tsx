@@ -5,6 +5,7 @@ import BulkVocabDialog, { splitTerms } from "../components/BulkVocabDialog";
 import Cover from "../components/Cover";
 import { Modal, useDialog } from "../components/Dialog";
 import ImagePicker from "../components/ImagePicker";
+import VocabTable from "../components/VocabTable";
 import PackageSelect, { lastPackage } from "../components/PackageSelect";
 import { SpeedControl } from "../components/SpeechControls";
 import Spinner from "../components/Spinner";
@@ -1075,40 +1076,22 @@ function Words({
   const [lang, setLang] = useState<Language | "">("");
   const [query, setQuery] = useState("");
   const dialog = useDialog();
-  // Select several words, then file them into a package in one go.
-  const [selecting, setSelecting] = useState(false);
-  const [selected, setSelected] = useState<Set<number>>(new Set());
-  const [target, setTarget] = useState<number | null>(() => lastPackage(packages));
-  const [moving, setMoving] = useState(false);
-
-  const toggle = (id: number) =>
-    setSelected((s) => {
-      const n = new Set(s);
-      if (n.has(id)) n.delete(id);
-      else n.add(id);
-      return n;
-    });
-
-  function stopSelecting() {
-    setSelecting(false);
-    setSelected(new Set());
-  }
-
-  async function move() {
-    const ids = [...selected];
-    if (ids.length === 0) return;
-    setMoving(true);
+  // Cards (with pictures) or a table (IDs, checkboxes, move to a package).
+  const [view, setViewState] = useState<"cards" | "table">(() => {
     try {
-      await api.moveVocab(ids, target);
-      const set = new Set(ids);
-      setEntries((es) => es?.map((v) => (set.has(v.id) ? { ...v, packageId: target } : v)) ?? null);
-      stopSelecting();
-    } catch (e) {
-      dialog.alert("Không chuyển được", e instanceof Error ? e.message : "");
-    } finally {
-      setMoving(false);
+      return localStorage.getItem("pocket.view") === "table" ? "table" : "cards";
+    } catch {
+      return "cards";
     }
-  }
+  });
+  const setView = (v: "cards" | "table") => {
+    setViewState(v);
+    try {
+      localStorage.setItem("pocket.view", v);
+    } catch {
+      /* storage unavailable */
+    }
+  };
 
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -1155,65 +1138,45 @@ function Words({
             </option>
           ))}
         </select>
-        <button
-          onClick={() => (selecting ? stopSelecting() : setSelecting(true))}
-          className={`rounded-lg px-3 py-2 text-sm ring-1 ${selecting ? "bg-indigo-600 text-white ring-indigo-600" : "text-slate-600 ring-slate-300 hover:bg-slate-100"}`}
-        >
-          {selecting ? "✓ Xong chọn" : "☑ Chọn nhiều → package"}
-        </button>
+        <div className="inline-flex rounded-lg p-0.5 ring-1 ring-slate-300" role="group" aria-label="Kiểu hiển thị">
+          {(
+            [
+              ["cards", "▤ Thẻ"],
+              ["table", "▦ Bảng · chọn hàng loạt"],
+            ] as const
+          ).map(([v, label]) => (
+            <button
+              key={v}
+              onClick={() => setView(v)}
+              aria-pressed={view === v}
+              className={`rounded-md px-3 py-1.5 text-sm ${view === v ? "bg-indigo-600 text-white" : "text-slate-600 hover:bg-slate-100"}`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
         <div className="ml-auto text-sm">
           <SpeedControl compact rate={rate} onChange={setRate} />
         </div>
       </div>
-      {selecting && (
-        <div className="sticky top-16 z-10 mt-3 rounded-xl bg-surface p-3 shadow-lg ring-1 ring-indigo-200">
-          <div className="flex flex-wrap items-center gap-2 text-sm">
-            <span className="text-slate-600">
-              Đã chọn <b className="text-slate-900">{selected.size}</b>
-            </span>
-            <button onClick={() => setSelected(new Set(visible.map((v) => v.id)))} className="rounded-lg px-2 py-1 text-indigo-700 hover:bg-indigo-50">
-              Chọn tất cả {visible.length} từ đang hiện
-            </button>
-            {selected.size > 0 && (
-              <button onClick={() => setSelected(new Set())} className="rounded-lg px-2 py-1 text-slate-500 hover:bg-slate-100">
-                Bỏ chọn
-              </button>
-            )}
-          </div>
-          <div className="mt-2 flex flex-wrap items-center gap-2">
-            <PackageSelect className="min-w-0 flex-1" packages={packages} value={target} onChange={setTarget} onCreated={onPackageCreated} />
-            <button
-              onClick={move}
-              disabled={moving || selected.size === 0}
-              className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-40"
-            >
-              {moving ? "Đang chuyển…" : target === null ? `Bỏ ${selected.size} từ khỏi package` : `Chuyển ${selected.size} từ`}
-            </button>
-          </div>
-        </div>
-      )}
       {entries.length === 0 && <p className="mt-6 text-slate-500">Chưa có từ nào. Bấm ＋ Thêm từ để thêm từ đầu tiên.</p>}
+      {view === "table" && entries.length > 0 && (
+        <VocabTable
+          entries={visible}
+          scope={entries}
+          packages={packages}
+          onPackageCreated={onPackageCreated}
+          setEntries={setEntries}
+          listen={listen}
+          onEdit={onEdit}
+        />
+      )}
+      {view === "cards" && (
       <ul className="mt-4 grid gap-2 xl:grid-cols-2">
           {visible.map((v) => {
             const isDue = new Date(v.dueAt).getTime() <= Date.now();
             return (
-              <li
-                key={v.id}
-                onClick={selecting ? () => toggle(v.id) : undefined}
-                className={`group flex items-center gap-4 rounded-xl bg-surface p-3 ring-1 ${selecting ? "cursor-pointer" : ""} ${
-                  selected.has(v.id) ? "ring-2 ring-indigo-500" : "ring-slate-200"
-                }`}
-              >
-                {selecting && (
-                  <input
-                    type="checkbox"
-                    checked={selected.has(v.id)}
-                    onChange={() => toggle(v.id)}
-                    onClick={(e) => e.stopPropagation()}
-                    className="h-5 w-5 shrink-0 accent-indigo-600"
-                    aria-label={`Chọn “${v.term}”`}
-                  />
-                )}
+              <li key={v.id} className="group flex items-center gap-4 rounded-xl bg-surface p-3 ring-1 ring-slate-200">
                 <Cover url={v.imageUrl} title={v.term} className="h-16 w-24 shrink-0 rounded-lg">
                   {drawing === v.id && (
                     <span className="absolute inset-0 flex items-center justify-center bg-black/60">
@@ -1237,7 +1200,7 @@ function Words({
                     {packageName && v.packageId !== null && packageName(v.packageId) && <> · 📦 {packageName(v.packageId)}</>}
                   </p>
                 </div>
-                <div className={`flex shrink-0 gap-1 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100 ${selecting ? "hidden" : ""}`}>
+                <div className={`flex shrink-0 gap-1 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100`}>
                   {canDraw && !v.imageUrl && (
                     <button onClick={() => draw(v)} disabled={drawing !== null} className="rounded px-2 py-1 text-xs text-indigo-700 hover:bg-indigo-50" title="Tạo ảnh bằng AI">
                       ✨ Ảnh
@@ -1254,6 +1217,7 @@ function Words({
             );
           })}
       </ul>
+      )}
     </section>
   );
 }
