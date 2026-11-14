@@ -64,19 +64,20 @@ func (q *Queries) AddVocabIfMissing(ctx context.Context, arg AddVocabIfMissingPa
 }
 
 const createVocab = `-- name: CreateVocab :one
-INSERT INTO vocab_entries (user_id, language, term, meaning, example, topic_id, image_key)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
-RETURNING id, user_id, language, term, meaning, example, topic_id, due_at, reviews, lapses, created_at, updated_at, ease, interval_days, reps, image_key
+INSERT INTO vocab_entries (user_id, language, term, meaning, example, topic_id, image_key, package_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+RETURNING id, user_id, language, term, meaning, example, topic_id, due_at, reviews, lapses, created_at, updated_at, ease, interval_days, reps, image_key, package_id
 `
 
 type CreateVocabParams struct {
-	UserID   int64
-	Language string
-	Term     string
-	Meaning  string
-	Example  string
-	TopicID  pgtype.Int8
-	ImageKey string
+	UserID    int64
+	Language  string
+	Term      string
+	Meaning   string
+	Example   string
+	TopicID   pgtype.Int8
+	ImageKey  string
+	PackageID pgtype.Int8
 }
 
 func (q *Queries) CreateVocab(ctx context.Context, arg CreateVocabParams) (VocabEntry, error) {
@@ -88,6 +89,7 @@ func (q *Queries) CreateVocab(ctx context.Context, arg CreateVocabParams) (Vocab
 		arg.Example,
 		arg.TopicID,
 		arg.ImageKey,
+		arg.PackageID,
 	)
 	var i VocabEntry
 	err := row.Scan(
@@ -107,6 +109,29 @@ func (q *Queries) CreateVocab(ctx context.Context, arg CreateVocabParams) (Vocab
 		&i.IntervalDays,
 		&i.Reps,
 		&i.ImageKey,
+		&i.PackageID,
+	)
+	return i, err
+}
+
+const createVocabPackage = `-- name: CreateVocabPackage :one
+INSERT INTO vocab_packages (user_id, name) VALUES ($1, $2)
+RETURNING id, user_id, name, created_at
+`
+
+type CreateVocabPackageParams struct {
+	UserID int64
+	Name   string
+}
+
+func (q *Queries) CreateVocabPackage(ctx context.Context, arg CreateVocabPackageParams) (VocabPackage, error) {
+	row := q.db.QueryRow(ctx, createVocabPackage, arg.UserID, arg.Name)
+	var i VocabPackage
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.Name,
+		&i.CreatedAt,
 	)
 	return i, err
 }
@@ -128,8 +153,25 @@ func (q *Queries) DeleteVocab(ctx context.Context, arg DeleteVocabParams) (int64
 	return result.RowsAffected(), nil
 }
 
+const deleteVocabPackage = `-- name: DeleteVocabPackage :execrows
+DELETE FROM vocab_packages WHERE id = $1 AND user_id = $2
+`
+
+type DeleteVocabPackageParams struct {
+	ID     int64
+	UserID int64
+}
+
+func (q *Queries) DeleteVocabPackage(ctx context.Context, arg DeleteVocabPackageParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteVocabPackage, arg.ID, arg.UserID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const getVocab = `-- name: GetVocab :one
-SELECT id, user_id, language, term, meaning, example, topic_id, due_at, reviews, lapses, created_at, updated_at, ease, interval_days, reps, image_key FROM vocab_entries WHERE id = $1 AND user_id = $2
+SELECT id, user_id, language, term, meaning, example, topic_id, due_at, reviews, lapses, created_at, updated_at, ease, interval_days, reps, image_key, package_id FROM vocab_entries WHERE id = $1 AND user_id = $2
 `
 
 type GetVocabParams struct {
@@ -157,12 +199,34 @@ func (q *Queries) GetVocab(ctx context.Context, arg GetVocabParams) (VocabEntry,
 		&i.IntervalDays,
 		&i.Reps,
 		&i.ImageKey,
+		&i.PackageID,
+	)
+	return i, err
+}
+
+const getVocabPackage = `-- name: GetVocabPackage :one
+SELECT id, user_id, name, created_at FROM vocab_packages WHERE id = $1 AND user_id = $2
+`
+
+type GetVocabPackageParams struct {
+	ID     int64
+	UserID int64
+}
+
+func (q *Queries) GetVocabPackage(ctx context.Context, arg GetVocabPackageParams) (VocabPackage, error) {
+	row := q.db.QueryRow(ctx, getVocabPackage, arg.ID, arg.UserID)
+	var i VocabPackage
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.Name,
+		&i.CreatedAt,
 	)
 	return i, err
 }
 
 const listVocab = `-- name: ListVocab :many
-SELECT id, user_id, language, term, meaning, example, topic_id, due_at, reviews, lapses, created_at, updated_at, ease, interval_days, reps, image_key FROM vocab_entries
+SELECT id, user_id, language, term, meaning, example, topic_id, due_at, reviews, lapses, created_at, updated_at, ease, interval_days, reps, image_key, package_id FROM vocab_entries
 WHERE user_id = $1
 ORDER BY created_at DESC
 `
@@ -193,6 +257,48 @@ func (q *Queries) ListVocab(ctx context.Context, userID int64) ([]VocabEntry, er
 			&i.IntervalDays,
 			&i.Reps,
 			&i.ImageKey,
+			&i.PackageID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listVocabPackages = `-- name: ListVocabPackages :many
+SELECT p.id, p.name, p.created_at, COUNT(v.id)::int AS words
+FROM vocab_packages p
+LEFT JOIN vocab_entries v ON v.package_id = p.id
+WHERE p.user_id = $1
+GROUP BY p.id
+ORDER BY lower(p.name)
+`
+
+type ListVocabPackagesRow struct {
+	ID        int64
+	Name      string
+	CreatedAt time.Time
+	Words     int32
+}
+
+func (q *Queries) ListVocabPackages(ctx context.Context, userID int64) ([]ListVocabPackagesRow, error) {
+	rows, err := q.db.Query(ctx, listVocabPackages, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListVocabPackagesRow{}
+	for rows.Next() {
+		var i ListVocabPackagesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.CreatedAt,
+			&i.Words,
 		); err != nil {
 			return nil, err
 		}
@@ -228,13 +334,36 @@ func (q *Queries) LogVocabReview(ctx context.Context, arg LogVocabReviewParams) 
 	return err
 }
 
+const renameVocabPackage = `-- name: RenameVocabPackage :one
+UPDATE vocab_packages SET name = $3 WHERE id = $1 AND user_id = $2
+RETURNING id, user_id, name, created_at
+`
+
+type RenameVocabPackageParams struct {
+	ID     int64
+	UserID int64
+	Name   string
+}
+
+func (q *Queries) RenameVocabPackage(ctx context.Context, arg RenameVocabPackageParams) (VocabPackage, error) {
+	row := q.db.QueryRow(ctx, renameVocabPackage, arg.ID, arg.UserID, arg.Name)
+	var i VocabPackage
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.Name,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const reviewVocab = `-- name: ReviewVocab :one
 UPDATE vocab_entries
 SET ease = $1, interval_days = $2, reps = $3,
     due_at = $4, reviews = reviews + 1,
     lapses = lapses + $5::int, updated_at = now()
 WHERE id = $6 AND user_id = $7
-RETURNING id, user_id, language, term, meaning, example, topic_id, due_at, reviews, lapses, created_at, updated_at, ease, interval_days, reps, image_key
+RETURNING id, user_id, language, term, meaning, example, topic_id, due_at, reviews, lapses, created_at, updated_at, ease, interval_days, reps, image_key, package_id
 `
 
 type ReviewVocabParams struct {
@@ -275,13 +404,14 @@ func (q *Queries) ReviewVocab(ctx context.Context, arg ReviewVocabParams) (Vocab
 		&i.IntervalDays,
 		&i.Reps,
 		&i.ImageKey,
+		&i.PackageID,
 	)
 	return i, err
 }
 
 const setVocabImage = `-- name: SetVocabImage :one
 UPDATE vocab_entries SET image_key = $3, updated_at = now() WHERE id = $1 AND user_id = $2
-RETURNING id, user_id, language, term, meaning, example, topic_id, due_at, reviews, lapses, created_at, updated_at, ease, interval_days, reps, image_key
+RETURNING id, user_id, language, term, meaning, example, topic_id, due_at, reviews, lapses, created_at, updated_at, ease, interval_days, reps, image_key, package_id
 `
 
 type SetVocabImageParams struct {
@@ -310,6 +440,7 @@ func (q *Queries) SetVocabImage(ctx context.Context, arg SetVocabImageParams) (V
 		&i.IntervalDays,
 		&i.Reps,
 		&i.ImageKey,
+		&i.PackageID,
 	)
 	return i, err
 }
@@ -356,18 +487,19 @@ func (q *Queries) TopicVocab(ctx context.Context, topicID int64) ([]TopicVocabRo
 const updateVocab = `-- name: UpdateVocab :one
 UPDATE vocab_entries
 SET term = $1, meaning = $2, example = $3,
-    image_key = $4, updated_at = now()
-WHERE id = $5 AND user_id = $6
-RETURNING id, user_id, language, term, meaning, example, topic_id, due_at, reviews, lapses, created_at, updated_at, ease, interval_days, reps, image_key
+    image_key = $4, package_id = $5, updated_at = now()
+WHERE id = $6 AND user_id = $7
+RETURNING id, user_id, language, term, meaning, example, topic_id, due_at, reviews, lapses, created_at, updated_at, ease, interval_days, reps, image_key, package_id
 `
 
 type UpdateVocabParams struct {
-	Term     string
-	Meaning  string
-	Example  string
-	ImageKey string
-	ID       int64
-	UserID   int64
+	Term      string
+	Meaning   string
+	Example   string
+	ImageKey  string
+	PackageID pgtype.Int8
+	ID        int64
+	UserID    int64
 }
 
 func (q *Queries) UpdateVocab(ctx context.Context, arg UpdateVocabParams) (VocabEntry, error) {
@@ -376,6 +508,7 @@ func (q *Queries) UpdateVocab(ctx context.Context, arg UpdateVocabParams) (Vocab
 		arg.Meaning,
 		arg.Example,
 		arg.ImageKey,
+		arg.PackageID,
 		arg.ID,
 		arg.UserID,
 	)
@@ -397,6 +530,7 @@ func (q *Queries) UpdateVocab(ctx context.Context, arg UpdateVocabParams) (Vocab
 		&i.IntervalDays,
 		&i.Reps,
 		&i.ImageKey,
+		&i.PackageID,
 	)
 	return i, err
 }

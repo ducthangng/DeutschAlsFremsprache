@@ -24,6 +24,25 @@ type vocabInput struct {
 	Example  string `json:"example"`
 	TopicID  *int64 `json:"topicId"`
 	ImageKey string `json:"imageKey"`
+	// PackageID files the word in one of the learner's packages (nil = none).
+	PackageID *int64 `json:"packageId"`
+}
+
+// checkPackage reports whether id (if set) is one of the user's packages,
+// writing the error response when it is not.
+func (s *Server) checkPackage(w http.ResponseWriter, r *http.Request, id *int64) bool {
+	if id == nil {
+		return true
+	}
+	if _, err := s.store.GetVocabPackage(r.Context(), auth.UserID(r.Context()), *id); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			writeError(w, http.StatusBadRequest, "package không tồn tại")
+		} else {
+			writeStoreError(w, err)
+		}
+		return false
+	}
+	return true
 }
 
 func (in *vocabInput) validate() string {
@@ -97,6 +116,9 @@ func (s *Server) createVocab(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "ngôn ngữ không được hỗ trợ")
 		return
 	}
+	if !s.checkPackage(w, r, in.PackageID) {
+		return
+	}
 	ctx, uid := r.Context(), auth.UserID(r.Context())
 	if in.TopicID != nil {
 		if _, err := s.store.GetTopic(ctx, uid, *in.TopicID); err != nil {
@@ -105,7 +127,7 @@ func (s *Server) createVocab(w http.ResponseWriter, r *http.Request) {
 	}
 	s.cardForms(ctx, uid, in.Language, []*vocabInput{&in})
 	v, err := s.store.CreateVocab(ctx, uid, &store.VocabEntry{Language: in.Language, Term: in.Term, Meaning: in.Meaning,
-		Example: in.Example, TopicID: in.TopicID, ImageKey: in.ImageKey})
+		Example: in.Example, TopicID: in.TopicID, ImageKey: in.ImageKey, PackageID: in.PackageID})
 	if errors.Is(err, store.ErrConflict) {
 		writeError(w, http.StatusConflict, "từ này đã có trong Vocabulary Pocket")
 		return
@@ -131,8 +153,11 @@ func (s *Server) updateVocab(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, msg)
 		return
 	}
+	if !s.checkPackage(w, r, in.PackageID) {
+		return
+	}
 	v, err := s.store.UpdateVocab(r.Context(), auth.UserID(r.Context()), &store.VocabEntry{ID: id, Term: in.Term, Meaning: in.Meaning,
-		Example: in.Example, ImageKey: in.ImageKey})
+		Example: in.Example, ImageKey: in.ImageKey, PackageID: in.PackageID})
 	if errors.Is(err, store.ErrConflict) {
 		writeError(w, http.StatusConflict, "từ này đã có trong Vocabulary Pocket")
 		return
@@ -366,8 +391,13 @@ func (s *Server) bulkAddVocab(w http.ResponseWriter, r *http.Request) {
 		Language string       `json:"language"`
 		TopicID  *int64       `json:"topicId"`
 		Items    []vocabInput `json:"items"`
+		// Every word of the batch goes into this package (nil = none).
+		PackageID *int64 `json:"packageId"`
 	}
 	if !decodeJSON(w, r, &in) {
+		return
+	}
+	if !s.checkPackage(w, r, in.PackageID) {
 		return
 	}
 	if !topic.Languages[in.Language] || len(in.Items) == 0 || len(in.Items) > 100 {
@@ -414,7 +444,7 @@ func (s *Server) bulkAddVocab(w http.ResponseWriter, r *http.Request) {
 	}{Added: []*store.VocabEntry{}, Skipped: []string{}}
 	for _, it := range in.Items {
 		v, err := s.store.CreateVocab(ctx, uid, &store.VocabEntry{Language: in.Language, Term: it.Term, Meaning: it.Meaning,
-			Example: it.Example, TopicID: in.TopicID, ImageKey: it.ImageKey})
+			Example: it.Example, TopicID: in.TopicID, ImageKey: it.ImageKey, PackageID: in.PackageID})
 		if errors.Is(err, store.ErrConflict) {
 			res.Skipped = append(res.Skipped, it.Term)
 			continue
@@ -427,4 +457,81 @@ func (s *Server) bulkAddVocab(w http.ResponseWriter, r *http.Request) {
 		res.Added = append(res.Added, v)
 	}
 	writeJSON(w, http.StatusOK, res)
+}
+
+// ---- packages ----
+
+func packageName(w http.ResponseWriter, r *http.Request) (string, bool) {
+	var in struct {
+		Name string `json:"name"`
+	}
+	if !decodeJSON(w, r, &in) {
+		return "", false
+	}
+	name := strings.Join(strings.Fields(in.Name), " ")
+	if name == "" || utf8.RuneCountInString(name) > 60 {
+		writeError(w, http.StatusBadRequest, "tên package cần từ 1 đến 60 ký tự")
+		return "", false
+	}
+	return name, true
+}
+
+func (s *Server) listVocabPackages(w http.ResponseWriter, r *http.Request) {
+	ps, err := s.store.ListVocabPackages(r.Context(), auth.UserID(r.Context()))
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, ps)
+}
+
+func (s *Server) createVocabPackage(w http.ResponseWriter, r *http.Request) {
+	name, ok := packageName(w, r)
+	if !ok {
+		return
+	}
+	p, err := s.store.CreateVocabPackage(r.Context(), auth.UserID(r.Context()), name)
+	if errors.Is(err, store.ErrConflict) {
+		writeError(w, http.StatusConflict, "đã có package tên này")
+		return
+	}
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, p)
+}
+
+func (s *Server) renameVocabPackage(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	name, ok := packageName(w, r)
+	if !ok {
+		return
+	}
+	p, err := s.store.RenameVocabPackage(r.Context(), auth.UserID(r.Context()), id, name)
+	if errors.Is(err, store.ErrConflict) {
+		writeError(w, http.StatusConflict, "đã có package tên này")
+		return
+	}
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, p)
+}
+
+// deleteVocabPackage removes the package; its words stay in the Pocket, unfiled.
+func (s *Server) deleteVocabPackage(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	if err := s.store.DeleteVocabPackage(r.Context(), auth.UserID(r.Context()), id); err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }

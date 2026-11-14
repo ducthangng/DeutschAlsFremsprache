@@ -110,7 +110,7 @@ func (q *Queries) UserAverageScores(ctx context.Context) ([]UserAverageScoresRow
 }
 
 const vocabAddedSince = `-- name: VocabAddedSince :many
-SELECT id, user_id, language, term, meaning, example, topic_id, due_at, reviews, lapses, created_at, updated_at, ease, interval_days, reps, image_key FROM vocab_entries WHERE user_id = $1 AND created_at >= $2 ORDER BY created_at
+SELECT id, user_id, language, term, meaning, example, topic_id, due_at, reviews, lapses, created_at, updated_at, ease, interval_days, reps, image_key, package_id FROM vocab_entries WHERE user_id = $1 AND created_at >= $2 ORDER BY created_at
 `
 
 type VocabAddedSinceParams struct {
@@ -144,6 +144,7 @@ func (q *Queries) VocabAddedSince(ctx context.Context, arg VocabAddedSinceParams
 			&i.IntervalDays,
 			&i.Reps,
 			&i.ImageKey,
+			&i.PackageID,
 		); err != nil {
 			return nil, err
 		}

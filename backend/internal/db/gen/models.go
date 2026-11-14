@@ -252,6 +252,14 @@ type VocabEntry struct {
 	IntervalDays float64
 	Reps         int32
 	ImageKey     string
+	PackageID    pgtype.Int8
+}
+
+type VocabPackage struct {
+	ID        int64
+	UserID    int64
+	Name      string
+	CreatedAt time.Time
 }
 
 type VocabReview struct {

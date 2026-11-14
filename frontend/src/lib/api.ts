@@ -238,6 +238,8 @@ export interface VocabEntry {
   meaning: string;
   example: string;
   topicId: number | null;
+  /** The learner's package for this word; null = not in a package. */
+  packageId: number | null;
   imageKey: string;
   imageUrl: string;
   dueAt: string;
@@ -360,6 +362,15 @@ export interface VocabInput {
   example: string;
   topicId?: number | null;
   imageKey?: string;
+  packageId?: number | null;
+}
+
+/** A named group of Pocket words. */
+export interface VocabPackage {
+  id: number;
+  name: string;
+  words: number;
+  createdAt: string;
 }
 
 export interface UsagePeriod {
@@ -791,8 +802,14 @@ export const api = {
   /** The topic owner's word list for the topic. */
   topicVocabulary: (id: number) => json<VocabCandidate[]>(`/topics/${id}/vocabulary`),
   /** Adds several words; missing meanings are translated, existing terms skipped. */
-  bulkAddVocab: (language: Language, topicId: number | null, items: VocabCandidate[]) =>
-    json<{ added: VocabEntry[]; skipped: string[] }>("/vocab/bulk", "POST", { language, topicId, items }),
+  /** Adds several words, all into packageId (null = no package). */
+  bulkAddVocab: (language: Language, topicId: number | null, items: VocabCandidate[], packageId: number | null = null) =>
+    json<{ added: VocabEntry[]; skipped: string[] }>("/vocab/bulk", "POST", { language, topicId, items, packageId }),
+  vocabPackages: () => json<VocabPackage[]>("/vocab/packages"),
+  createVocabPackage: (name: string) => json<VocabPackage>("/vocab/packages", "POST", { name }),
+  renameVocabPackage: (id: number, name: string) => json<VocabPackage>(`/vocab/packages/${id}`, "PUT", { name }),
+  /** The package's words stay in the Pocket, without a package. */
+  deleteVocabPackage: (id: number) => json<void>(`/vocab/packages/${id}`, "DELETE"),
 
   listTopics: () => json<Topic[]>("/topics"),
   getTopic: (id: number) => json<TopicDetail>(`/topics/${id}`),

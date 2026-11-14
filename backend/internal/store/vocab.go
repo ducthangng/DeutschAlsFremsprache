@@ -11,21 +11,23 @@ import (
 )
 
 type VocabEntry struct {
-	ID       int64     `json:"id"`
-	Language string    `json:"language"`
-	Term     string    `json:"term"`
-	Meaning  string    `json:"meaning"`
-	Example  string    `json:"example"`
-	TopicID  *int64    `json:"topicId"`
-	ImageKey string    `json:"imageKey"`
-	ImageURL string    `json:"imageUrl"` // filled in by the API layer
-	DueAt    time.Time `json:"dueAt"`
-	Reviews  int       `json:"reviews"`
-	Lapses   int       `json:"lapses"`
-	Ease     float64   `json:"ease"`
-	Interval float64   `json:"intervalDays"`
-	Reps     int       `json:"reps"`
-	State    string    `json:"state"` // new | learning | young | mature
+	ID       int64  `json:"id"`
+	Language string `json:"language"`
+	Term     string `json:"term"`
+	Meaning  string `json:"meaning"`
+	Example  string `json:"example"`
+	TopicID  *int64 `json:"topicId"`
+	// PackageID is the learner's group for this word; nil = not in a package.
+	PackageID *int64    `json:"packageId"`
+	ImageKey  string    `json:"imageKey"`
+	ImageURL  string    `json:"imageUrl"` // filled in by the API layer
+	DueAt     time.Time `json:"dueAt"`
+	Reviews   int       `json:"reviews"`
+	Lapses    int       `json:"lapses"`
+	Ease      float64   `json:"ease"`
+	Interval  float64   `json:"intervalDays"`
+	Reps      int       `json:"reps"`
+	State     string    `json:"state"` // new | learning | young | mature
 	// NextIn previews, per answer (again/hard/good/easy), seconds until the card is due again.
 	NextIn    map[string]int64 `json:"nextIn"`
 	CreatedAt time.Time        `json:"createdAt"`
@@ -44,6 +46,10 @@ func toVocab(v gen.VocabEntry) *VocabEntry {
 	if v.TopicID.Valid {
 		id := v.TopicID.Int64
 		out.TopicID = &id
+	}
+	if v.PackageID.Valid {
+		id := v.PackageID.Int64
+		out.PackageID = &id
 	}
 	return out
 }
@@ -78,7 +84,7 @@ func (s *Store) GetVocab(ctx context.Context, userID, id int64) (*VocabEntry, er
 // CreateVocab returns ErrConflict if the user already has this term.
 func (s *Store) CreateVocab(ctx context.Context, userID int64, v *VocabEntry) (*VocabEntry, error) {
 	row, err := s.q.CreateVocab(ctx, gen.CreateVocabParams{UserID: userID, Language: v.Language, Term: v.Term,
-		Meaning: v.Meaning, Example: v.Example, TopicID: optInt8(v.TopicID), ImageKey: v.ImageKey})
+		Meaning: v.Meaning, Example: v.Example, TopicID: optInt8(v.TopicID), ImageKey: v.ImageKey, PackageID: optInt8(v.PackageID)})
 	if err != nil {
 		return nil, mapErr(err)
 	}
@@ -86,7 +92,7 @@ func (s *Store) CreateVocab(ctx context.Context, userID int64, v *VocabEntry) (*
 }
 
 func (s *Store) UpdateVocab(ctx context.Context, userID int64, v *VocabEntry) (*VocabEntry, error) {
-	row, err := s.q.UpdateVocab(ctx, gen.UpdateVocabParams{ID: v.ID, UserID: userID, Term: v.Term, Meaning: v.Meaning, Example: v.Example, ImageKey: v.ImageKey})
+	row, err := s.q.UpdateVocab(ctx, gen.UpdateVocabParams{ID: v.ID, UserID: userID, Term: v.Term, Meaning: v.Meaning, Example: v.Example, ImageKey: v.ImageKey, PackageID: optInt8(v.PackageID)})
 	if err != nil {
 		return nil, mapErr(err)
 	}
@@ -160,4 +166,62 @@ func (s *Store) ReviewDays(ctx context.Context, userID int64, offsetMinutes int)
 		out[i] = ReviewDay{Day: r.Day.Time, Reviews: int(r.Reviews), Remembered: int(r.Remembered), DurationMs: r.DurationMs}
 	}
 	return out, nil
+}
+
+// VocabPackage is a named group of Pocket words.
+type VocabPackage struct {
+	ID        int64     `json:"id"`
+	Name      string    `json:"name"`
+	Words     int       `json:"words"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+func (s *Store) ListVocabPackages(ctx context.Context, userID int64) ([]*VocabPackage, error) {
+	rows, err := s.q.ListVocabPackages(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*VocabPackage, len(rows))
+	for i, r := range rows {
+		out[i] = &VocabPackage{ID: r.ID, Name: r.Name, Words: int(r.Words), CreatedAt: r.CreatedAt}
+	}
+	return out, nil
+}
+
+// GetVocabPackage returns ErrNotFound unless the package belongs to the user.
+func (s *Store) GetVocabPackage(ctx context.Context, userID, id int64) (*VocabPackage, error) {
+	p, err := s.q.GetVocabPackage(ctx, gen.GetVocabPackageParams{ID: id, UserID: userID})
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return &VocabPackage{ID: p.ID, Name: p.Name, CreatedAt: p.CreatedAt}, nil
+}
+
+// CreateVocabPackage returns ErrConflict if the user already has a package with this name.
+func (s *Store) CreateVocabPackage(ctx context.Context, userID int64, name string) (*VocabPackage, error) {
+	p, err := s.q.CreateVocabPackage(ctx, gen.CreateVocabPackageParams{UserID: userID, Name: name})
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return &VocabPackage{ID: p.ID, Name: p.Name, CreatedAt: p.CreatedAt}, nil
+}
+
+func (s *Store) RenameVocabPackage(ctx context.Context, userID, id int64, name string) (*VocabPackage, error) {
+	p, err := s.q.RenameVocabPackage(ctx, gen.RenameVocabPackageParams{ID: id, UserID: userID, Name: name})
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return &VocabPackage{ID: p.ID, Name: p.Name, CreatedAt: p.CreatedAt}, nil
+}
+
+// DeleteVocabPackage removes the package; its words stay in the Pocket, unfiled.
+func (s *Store) DeleteVocabPackage(ctx context.Context, userID, id int64) error {
+	n, err := s.q.DeleteVocabPackage(ctx, gen.DeleteVocabPackageParams{ID: id, UserID: userID})
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
 }

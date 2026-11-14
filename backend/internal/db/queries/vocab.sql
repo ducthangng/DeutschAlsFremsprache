@@ -4,14 +4,14 @@ WHERE user_id = $1
 ORDER BY created_at DESC;
 
 -- name: CreateVocab :one
-INSERT INTO vocab_entries (user_id, language, term, meaning, example, topic_id, image_key)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
+INSERT INTO vocab_entries (user_id, language, term, meaning, example, topic_id, image_key, package_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 RETURNING *;
 
 -- name: UpdateVocab :one
 UPDATE vocab_entries
 SET term = sqlc.arg(term), meaning = sqlc.arg(meaning), example = sqlc.arg(example),
-    image_key = sqlc.arg(image_key), updated_at = now()
+    image_key = sqlc.arg(image_key), package_id = sqlc.narg(package_id), updated_at = now()
 WHERE id = sqlc.arg(id) AND user_id = sqlc.arg(user_id)
 RETURNING *;
 
@@ -64,3 +64,25 @@ ORDER BY position;
 INSERT INTO topic_vocab (topic_id, position, term, meaning)
 VALUES ($1, $2, $3, $4)
 ON CONFLICT DO NOTHING;
+
+-- name: ListVocabPackages :many
+SELECT p.id, p.name, p.created_at, COUNT(v.id)::int AS words
+FROM vocab_packages p
+LEFT JOIN vocab_entries v ON v.package_id = p.id
+WHERE p.user_id = $1
+GROUP BY p.id
+ORDER BY lower(p.name);
+
+-- name: GetVocabPackage :one
+SELECT * FROM vocab_packages WHERE id = $1 AND user_id = $2;
+
+-- name: CreateVocabPackage :one
+INSERT INTO vocab_packages (user_id, name) VALUES ($1, $2)
+RETURNING *;
+
+-- name: RenameVocabPackage :one
+UPDATE vocab_packages SET name = $3 WHERE id = $1 AND user_id = $2
+RETURNING *;
+
+-- name: DeleteVocabPackage :execrows
+DELETE FROM vocab_packages WHERE id = $1 AND user_id = $2;

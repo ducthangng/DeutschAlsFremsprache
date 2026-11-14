@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState } from "react";
-import { api, GLOSS, LANGUAGES, type Language, type VocabEntry } from "../lib/api";
+import { api, GLOSS, LANGUAGES, type Language, type VocabEntry, type VocabPackage } from "../lib/api";
+import PackageSelect from "./PackageSelect";
 import { Modal } from "./Dialog";
 import Spinner from "./Spinner";
 
@@ -43,12 +44,20 @@ export default function BulkVocabDialog({
   existing,
   onClose,
   onAdded,
+  packages,
+  onPackageCreated,
+  defaultPackage,
 }: {
   existing: VocabEntry[];
   onClose: () => void;
   onAdded: (added: VocabEntry[]) => void;
+  packages: VocabPackage[];
+  onPackageCreated: (p: VocabPackage) => void;
+  defaultPackage: number | null;
 }) {
   const [language, setLanguage] = useState<Language>("de-DE");
+  // The whole batch goes into one package.
+  const [packageId, setPackageId] = useState<number | null>(defaultPackage);
   const [paste, setPaste] = useState("");
   const [rows, setRows] = useState<Row[]>([]);
   const [busy, setBusy] = useState<"" | "translate" | "save">("");
@@ -126,6 +135,7 @@ export default function BulkVocabDialog({
           language,
           null,
           chunk.map((r) => ({ term: r.term.trim(), meaning: r.meaning.trim() || undefined, example: r.example.trim() || undefined })),
+          packageId,
         );
         added.push(...res.added);
         skipped += res.skipped.length;
@@ -164,6 +174,8 @@ export default function BulkVocabDialog({
           </button>
         ))}
       </div>
+
+      <PackageSelect className="mt-3" packages={packages} value={packageId} onChange={setPackageId} onCreated={onPackageCreated} />
 
       <div className="mt-3">
         <textarea
@@ -263,7 +275,8 @@ export default function BulkVocabDialog({
       {msg && <p className="mt-3 text-sm text-red-600">{msg}</p>}
       {result && (
         <p className="mt-3 text-sm text-emerald-600">
-          ✓ Đã thêm {result.added} từ{result.skipped > 0 && ` · ${result.skipped} từ đã có sẵn`}.
+          ✓ Đã thêm {result.added} từ{packageId !== null && <> vào 📦 {packages.find((p) => p.id === packageId)?.name}</>}
+          {result.skipped > 0 && ` · ${result.skipped} từ đã có sẵn`}.
         </p>
       )}
 

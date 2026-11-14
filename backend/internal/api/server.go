@@ -140,6 +140,10 @@ func (s *Server) Handler() http.Handler {
 	protected("POST /api/vocab/{id}/review", s.reviewVocab)
 	protected("POST /api/vocab/{id}/image", s.generateVocabImage)
 	protected("GET /api/vocab/stats", s.vocabStats)
+	protected("GET /api/vocab/packages", s.listVocabPackages)
+	protected("POST /api/vocab/packages", s.createVocabPackage)
+	protected("PUT /api/vocab/packages/{id}", s.renameVocabPackage)
+	protected("DELETE /api/vocab/packages/{id}", s.deleteVocabPackage)
 
 	protected("GET /api/grammar/models", s.grammarModels)
 	protected("GET /api/grammar", s.listGrammarSets)

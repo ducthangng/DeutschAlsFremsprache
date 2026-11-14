@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, GLOSS, type TopicDetail, type VocabCandidate } from "../lib/api";
 import { Modal } from "./Dialog";
+import PackageSelect, { lastPackage, usePackages } from "./PackageSelect";
 import Spinner from "./Spinner";
 
 const key = (term: string) => term.trim().toLowerCase();
@@ -32,6 +33,10 @@ export default function AddVocabDialog({ topic, onClose }: { topic: TopicDetail;
   const [result, setResult] = useState<{ added: number; skipped: number } | null>(null);
   const [error, setError] = useState("");
   const words = useMemo(() => wordsOf(topic), [topic]);
+  const [packages, addPackage] = usePackages();
+  // Every picked word goes into this one package; starts at the last one used.
+  const [packageId, setPackageId] = useState<number | null | undefined>(undefined);
+  const pkg = packageId === undefined ? (packages ? lastPackage(packages) : null) : packageId;
 
   useEffect(() => {
     Promise.all([api.topicVocabulary(topic.id), api.listVocab()]).then(
@@ -62,7 +67,7 @@ export default function AddVocabDialog({ topic, onClose }: { topic: TopicDetail;
     setBusy(true);
     setError("");
     try {
-      const res = await api.bulkAddVocab(topic.language, topic.id, [...picked.values()]);
+      const res = await api.bulkAddVocab(topic.language, topic.id, [...picked.values()], pkg);
       setResult({ added: res.added.length, skipped: res.skipped.length });
       setOwned((o) => new Set([...o, ...res.added.map((v) => key(v.term))]));
       setPicked(new Map());
@@ -155,6 +160,8 @@ export default function AddVocabDialog({ topic, onClose }: { topic: TopicDetail;
           </>
         )}
       </div>
+
+      {packages && <PackageSelect className="mt-3" packages={packages} value={pkg} onChange={setPackageId} onCreated={addPackage} />}
 
       {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
       {result && (

@@ -5,9 +5,10 @@ import BulkVocabDialog from "../components/BulkVocabDialog";
 import Cover from "../components/Cover";
 import { Modal, useDialog } from "../components/Dialog";
 import ImagePicker from "../components/ImagePicker";
+import PackageSelect, { lastPackage } from "../components/PackageSelect";
 import { SpeedControl } from "../components/SpeechControls";
 import Spinner from "../components/Spinner";
-import { api, ApiError, GLOSS, LANGUAGES, type CardState, type Grade, type Language, type VocabEntry, type VocabInput, type VocabStats } from "../lib/api";
+import { api, ApiError, GLOSS, LANGUAGES, type CardState, type Grade, type Language, type VocabEntry, type VocabInput, type VocabPackage, type VocabStats } from "../lib/api";
 import { speak, type Playback } from "../lib/audio";
 import { usePrefs } from "../lib/prefs";
 
@@ -54,12 +55,44 @@ export default function Pocket() {
   const [prefs, setPrefs] = usePrefs();
   const [editor, setEditor] = useState<VocabEntry | "new" | null>(null); // the add / edit popup
   const [bulk, setBulk] = useState(false); // add many words at once
+  const [packages, setPackages] = useState<VocabPackage[]>([]);
+  // Which words the page shows and reviews: all, one package, or words without one.
+  const [pkg, setPkg] = useState<PackageFilter>("all");
   const playback = useRef<Playback | null>(null);
+  const dialog = useDialog();
 
   const reload = () => {
     api.listVocab().then(setEntries, (e) => setError(e.message));
     api.vocabStats().then(setStats, () => {});
+    api.vocabPackages().then(setPackages, () => {});
   };
+  const addPackage = (p: VocabPackage) => setPackages((ps) => [...ps.filter((x) => x.id !== p.id), p].sort((a, b) => a.name.localeCompare(b.name)));
+
+  async function renamePackage(p: VocabPackage, name: string) {
+    try {
+      addPackage(await api.renameVocabPackage(p.id, name));
+    } catch (e) {
+      dialog.alert("Không đổi tên được", e instanceof Error ? e.message : "");
+    }
+  }
+
+  async function deletePackage(p: VocabPackage) {
+    const ok = await dialog.confirm({
+      title: `Xoá package "${p.name}"?`,
+      message: "Các từ trong package vẫn được giữ lại trong Pocket (chuyển sang “Chưa phân loại”).",
+      confirmText: "Xoá package",
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await api.deleteVocabPackage(p.id);
+      setPackages((ps) => ps.filter((x) => x.id !== p.id));
+      setEntries((es) => es?.map((v) => (v.packageId === p.id ? { ...v, packageId: null } : v)) ?? null);
+      setPkg("all");
+    } catch (e) {
+      dialog.alert("Không xoá được", e instanceof Error ? e.message : "");
+    }
+  }
   useEffect(() => {
     reload();
     api.health().then((h) => setCanDraw(h.imageGeneration), () => {});
@@ -71,10 +104,15 @@ export default function Pocket() {
     playback.current = speak(v.term, { lang: v.language, rate: prefs.rate, voiceURI: prefs.voice[v.language] || undefined });
   };
 
-  const due = useMemo(
-    () => (entries ?? []).filter((v) => new Date(v.dueAt).getTime() <= Date.now()).sort((a, b) => a.dueAt.localeCompare(b.dueAt)),
-    [entries],
+  const shown = useMemo(
+    () => (entries ?? []).filter((v) => pkg === "all" || (pkg === "none" ? v.packageId === null : v.packageId === pkg)),
+    [entries, pkg],
   );
+  const due = useMemo(
+    () => shown.filter((v) => new Date(v.dueAt).getTime() <= Date.now()).sort((a, b) => a.dueAt.localeCompare(b.dueAt)),
+    [shown],
+  );
+  const currentPackage = typeof pkg === "number" ? packages.find((p) => p.id === pkg) : undefined;
 
   if (review) {
     return (
@@ -127,25 +165,52 @@ export default function Pocket() {
         </div>
       </div>
 
+      {entries && (packages.length > 0 || entries.length > 0) && (
+        <PackageBar
+          packages={packages}
+          entries={entries}
+          value={pkg}
+          onChange={setPkg}
+          onRename={renamePackage}
+          onDelete={deletePackage}
+        />
+      )}
+
       {error && <p className="mt-6 rounded-lg bg-red-50 px-4 py-3 text-red-700">{error}</p>}
       {!entries && !error && <Spinner className="mx-auto mt-16" />}
 
-      {entries && tab === "overview" && (
+      {entries && entries.length > 0 && shown.length === 0 && (
+        <div className="mt-12 text-center text-slate-500">
+          <p className="text-4xl">📦</p>
+          <p className="mt-3">{currentPackage ? `Package “${currentPackage.name}” chưa có từ nào.` : "Không có từ nào chưa phân loại."}</p>
+          <div className="mt-4 flex justify-center gap-2">
+            <button onClick={() => setEditor("new")} className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500">
+              ＋ Thêm từ
+            </button>
+            <button onClick={() => setBulk(true)} className="rounded-xl px-4 py-2 text-sm font-semibold text-indigo-700 ring-1 ring-indigo-200 hover:bg-indigo-50">
+              ＋ Thêm nhiều từ
+            </button>
+          </div>
+        </div>
+      )}
+
+      {entries && (shown.length > 0 || entries.length === 0) && tab === "overview" && (
         <Overview
           stats={stats}
           dueCount={due.length}
-          total={entries.length}
+          total={shown.length}
           goal={prefs.dailyGoal}
           setGoal={(g) => setPrefs({ dailyGoal: g })}
           onReview={() => setReview(due.slice(0, 50))}
-          onReviewAll={() => setReview(shuffle(entries).slice(0, 50))}
+          onReviewAll={() => setReview(shuffle(shown).slice(0, 50))}
           onAddWords={() => setEditor("new")}
         />
       )}
 
-      {entries && tab === "words" && (
+      {entries && (shown.length > 0 || entries.length === 0) && tab === "words" && (
         <Words
-          entries={entries}
+          entries={shown}
+          packageName={pkg === "all" ? (id) => packages.find((p) => p.id === id)?.name : undefined}
           setEntries={setEntries}
           listen={listen}
           canDraw={canDraw}
@@ -159,6 +224,9 @@ export default function Pocket() {
       {bulk && (
         <BulkVocabDialog
           existing={entries ?? []}
+          packages={packages}
+          onPackageCreated={addPackage}
+          defaultPackage={typeof pkg === "number" ? pkg : lastPackage(packages)}
           onClose={() => setBulk(false)}
           onAdded={(added) => {
             setEntries((es) => [...added, ...(es ?? [])]);
@@ -170,6 +238,9 @@ export default function Pocket() {
 
       {editor && (
         <VocabDialog
+          packages={packages}
+          onPackageCreated={addPackage}
+          defaultPackage={typeof pkg === "number" ? pkg : lastPackage(packages)}
           onBulk={() => {
             setEditor(null);
             setBulk(true);
@@ -182,6 +253,94 @@ export default function Pocket() {
             if (isNew) setTab("words");
           }}
         />
+      )}
+    </div>
+  );
+}
+
+type PackageFilter = "all" | "none" | number;
+
+/** Package chips: filter the Pocket by package; rename or delete the selected one. */
+function PackageBar({
+  packages,
+  entries,
+  value,
+  onChange,
+  onRename,
+  onDelete,
+}: {
+  packages: VocabPackage[];
+  entries: VocabEntry[];
+  value: PackageFilter;
+  onChange: (v: PackageFilter) => void;
+  onRename: (p: VocabPackage, name: string) => Promise<void>;
+  onDelete: (p: VocabPackage) => void;
+}) {
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const counts = useMemo(() => {
+    const m = new Map<number | null, number>();
+    for (const v of entries) m.set(v.packageId, (m.get(v.packageId) ?? 0) + 1);
+    return m;
+  }, [entries]);
+  const current = typeof value === "number" ? packages.find((p) => p.id === value) : undefined;
+  useEffect(() => setRenaming(null), [value]);
+
+  const chip = (v: PackageFilter, label: string, n: number) => (
+    <button
+      key={String(v)}
+      onClick={() => onChange(v)}
+      className={`shrink-0 rounded-full px-3 py-1.5 text-sm transition ${
+        value === v ? "bg-indigo-600 font-medium text-white" : "text-slate-600 ring-1 ring-slate-200 hover:ring-indigo-300"
+      }`}
+    >
+      {label} <span className={value === v ? "text-white/70" : "text-slate-400"}>{n}</span>
+    </button>
+  );
+
+  return (
+    <div className="mt-6">
+      <div className="no-scrollbar -mx-4 flex items-center gap-2 overflow-x-auto px-4 pb-1 sm:mx-0 sm:flex-wrap sm:px-0">
+        {chip("all", "Tất cả", entries.length)}
+        {packages.map((p) => chip(p.id, `📦 ${p.name}`, counts.get(p.id) ?? 0))}
+        {packages.length > 0 && chip("none", "Chưa phân loại", counts.get(null) ?? 0)}
+        {packages.length === 0 && (
+          <span className="text-xs text-slate-400">Chia từ thành các package: chọn “＋ Tạo package mới” khi thêm từ.</span>
+        )}
+      </div>
+      {current && (
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
+          {renaming !== null ? (
+            <form
+              className="flex gap-2"
+              onSubmit={async (e) => {
+                e.preventDefault();
+                if (renaming.trim() && renaming.trim() !== current.name) await onRename(current, renaming.trim());
+                setRenaming(null);
+              }}
+            >
+              <input
+                autoFocus
+                value={renaming}
+                maxLength={60}
+                onChange={(e) => setRenaming(e.target.value)}
+                className="rounded-lg border border-slate-300 bg-transparent px-3 py-1.5 outline-none focus:border-indigo-500"
+              />
+              <button className="rounded-lg bg-indigo-600 px-3 py-1.5 font-semibold text-white hover:bg-indigo-500">Lưu</button>
+              <button type="button" onClick={() => setRenaming(null)} className="rounded-lg px-2 py-1.5 text-slate-500 hover:bg-slate-100">
+                Huỷ
+              </button>
+            </form>
+          ) : (
+            <>
+              <button onClick={() => setRenaming(current.name)} className="rounded-lg px-2 py-1 text-slate-500 hover:bg-slate-100">
+                ✏️ Đổi tên
+              </button>
+              <button onClick={() => onDelete(current)} className="rounded-lg px-2 py-1 text-red-500 hover:bg-red-50">
+                🗑 Xoá package
+              </button>
+            </>
+          )}
+        </div>
       )}
     </div>
   );
@@ -342,14 +501,22 @@ function VocabDialog({
   onClose,
   onSaved,
   onBulk,
+  packages,
+  onPackageCreated,
+  defaultPackage,
 }: {
   entry: VocabEntry | null;
   onClose: () => void;
   onSaved: (v: VocabEntry, isNew: boolean) => void;
   onBulk: () => void;
+  packages: VocabPackage[];
+  onPackageCreated: (p: VocabPackage) => void;
+  defaultPackage: number | null;
 }) {
   const [form, setForm] = useState<VocabInput>(() =>
-    entry ? { language: entry.language, term: entry.term, meaning: entry.meaning, example: entry.example, imageKey: entry.imageKey } : emptyForm("de-DE"),
+    entry
+      ? { language: entry.language, term: entry.term, meaning: entry.meaning, example: entry.example, imageKey: entry.imageKey, packageId: entry.packageId }
+      : { ...emptyForm("de-DE"), packageId: defaultPackage },
   );
   const [imageUrl, setImageUrl] = useState(entry?.imageUrl ?? "");
   const [msg, setMsg] = useState("");
@@ -385,7 +552,7 @@ function VocabDialog({
       onSaved(v, true);
       // Stay open so several words can be added in a row.
       setAdded(v.term);
-      setForm(emptyForm(form.language));
+      setForm({ ...emptyForm(form.language), packageId: form.packageId }); // the next word goes into the same package
       setImageUrl("");
       termRef.current?.focus();
     } catch (err) {
@@ -430,6 +597,12 @@ function VocabDialog({
             🪄 Dịch
           </button>
         </div>
+        <PackageSelect
+          packages={packages}
+          value={form.packageId ?? null}
+          onChange={(id) => setForm((f) => ({ ...f, packageId: id }))}
+          onCreated={onPackageCreated}
+        />
         <textarea className={`${input} h-16 text-sm`} placeholder="Câu ví dụ (tuỳ chọn)" value={form.example} onChange={(e) => setForm({ ...form, example: e.target.value })} />
         <ImagePicker
           url={imageUrl}
@@ -468,7 +641,9 @@ function Words({
   setRate,
   onEdit,
   onChanged,
+  packageName,
 }: {
+  packageName?: (id: number) => string | undefined;
   entries: VocabEntry[];
   setEntries: (fn: (es: VocabEntry[] | null) => VocabEntry[] | null) => void;
   listen: (v: VocabEntry) => void;
@@ -558,6 +733,7 @@ function Words({
                     {" · "}
                     {isDue ? <span className="text-amber-700">đến hạn ôn</span> : `ôn sau ${formatInterval((new Date(v.dueAt).getTime() - Date.now()) / 1000)}`}
                     {v.reviews > 0 && ` · ${v.reviews} lượt ôn`}
+                    {packageName && v.packageId !== null && packageName(v.packageId) && <> · 📦 {packageName(v.packageId)}</>}
                   </p>
                 </div>
                 <div className="flex shrink-0 gap-1 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100">
