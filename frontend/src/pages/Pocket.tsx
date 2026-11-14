@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { ColumnChart, GoalRing, MasteryBar, StatTile } from "../components/Charts";
-import BulkVocabDialog from "../components/BulkVocabDialog";
+import BulkVocabDialog, { splitTerms } from "../components/BulkVocabDialog";
 import Cover from "../components/Cover";
 import { Modal, useDialog } from "../components/Dialog";
 import ImagePicker from "../components/ImagePicker";
@@ -524,13 +524,18 @@ function VocabDialog({
   const [busy, setBusy] = useState(false);
   const termRef = useRef<HTMLInputElement>(null);
 
+  // New words: several can be typed at once, separated by commas.
+  const terms = entry ? [form.term.trim()].filter(Boolean) : splitTerms(form.term);
+  const many = terms.length > 1;
+
   async function suggestMeaning() {
-    if (!form.term.trim()) return;
+    if (terms.length === 0) return;
     setBusy(true);
     setMsg("");
     try {
-      const res = await api.translate(form.language, [form.term.trim()]);
-      setForm((f) => ({ ...f, meaning: res.translations[0] }));
+      const res = await api.translate(form.language, terms);
+      // One meaning per word, in the same order, so they pair up when saved.
+      setForm((f) => ({ ...f, meaning: res.translations.map((t) => t.replace(/,/g, ";")).join(", ") }));
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "Không dịch được");
     } finally {
@@ -548,10 +553,29 @@ function VocabDialog({
         onClose();
         return;
       }
-      const v = await api.createVocab(form);
-      onSaved(v, true);
-      // Stay open so several words can be added in a row.
-      setAdded(v.term);
+      if (many) {
+        // Meanings pair with the words when there are as many of them; otherwise they are translated.
+        const meanings = splitTerms(form.meaning);
+        if (meanings.length > 0 && meanings.length !== terms.length) {
+          setMsg(`Có ${terms.length} từ nhưng ${meanings.length} nghĩa. Hãy nhập nghĩa cho từng từ (cách nhau bằng dấu phẩy), hoặc để trống để dịch tự động.`);
+          return;
+        }
+        const res = await api.bulkAddVocab(
+          form.language,
+          null,
+          terms.map((term, i) => ({ term, meaning: meanings[i] || undefined, example: form.example.trim() || undefined })),
+          form.packageId ?? null,
+        );
+        res.added.forEach((v) => onSaved(v, true));
+        setAdded(
+          `${res.added.length} từ` + (res.skipped.length ? ` (${res.skipped.length} từ đã có sẵn: ${res.skipped.join(", ")})` : ""),
+        );
+      } else {
+        const v = await api.createVocab({ ...form, term: terms[0] ?? form.term });
+        onSaved(v, true);
+        setAdded(`“${v.term}”`);
+      }
+      // Stay open so more words can be added.
       setForm({ ...emptyForm(form.language), packageId: form.packageId }); // the next word goes into the same package
       setImageUrl("");
       termRef.current?.focus();
@@ -586,13 +610,23 @@ function VocabDialog({
           autoFocus
           className={input}
           required
-          maxLength={200}
-          placeholder="Từ / cụm từ, VD: die Verspätung"
+          maxLength={entry ? 200 : 4000}
+          placeholder={entry ? "Từ / cụm từ" : "Từ / cụm từ, nhiều từ cách nhau bằng dấu phẩy: Haus, Auto, Baum"}
           value={form.term}
           onChange={(e) => setForm({ ...form, term: e.target.value })}
         />
+        {many && (
+          <p className="-mt-1 flex flex-wrap gap-1 text-xs text-slate-500">
+            <span>{terms.length} từ:</span>
+            {terms.map((t, i) => (
+              <span key={i} className="rounded-full bg-indigo-50 px-2 py-0.5 text-indigo-700">
+                {t}
+              </span>
+            ))}
+          </p>
+        )}
         <div className="flex gap-2">
-          <input className={input} placeholder={`Nghĩa ${GLOSS[form.language]}`} value={form.meaning} onChange={(e) => setForm({ ...form, meaning: e.target.value })} />
+          <input className={input} placeholder={many ? `Nghĩa ${GLOSS[form.language]}, theo thứ tự, cách nhau bằng dấu phẩy (hoặc để trống)` : `Nghĩa ${GLOSS[form.language]}`} value={form.meaning} onChange={(e) => setForm({ ...form, meaning: e.target.value })} />
           <button type="button" onClick={suggestMeaning} disabled={busy || !form.term.trim()} className="shrink-0 rounded-lg px-3 text-sm text-indigo-700 ring-1 ring-indigo-200 hover:bg-indigo-50 disabled:opacity-40">
             🪄 Dịch
           </button>
@@ -613,7 +647,7 @@ function VocabDialog({
           }}
         />
         {msg && <p className="text-sm text-red-600">{msg}</p>}
-        {added && !msg && <p className="text-sm text-emerald-600">✓ Đã thêm “{added}”. Thêm từ tiếp theo, hoặc đóng.</p>}
+        {added && !msg && <p className="text-sm text-emerald-600">✓ Đã thêm {added}. Thêm từ tiếp theo, hoặc đóng.</p>}
         <div className="flex flex-wrap items-center justify-end gap-2 pt-1">
           {!entry && (
             <button type="button" onClick={onBulk} className="mr-auto text-sm text-indigo-700 hover:underline">
@@ -624,7 +658,7 @@ function VocabDialog({
             {added ? "Xong" : "Huỷ"}
           </button>
           <button disabled={busy} className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-60">
-            {entry ? "Lưu" : "Thêm vào Pocket"}
+            {entry ? "Lưu" : many ? `Thêm ${terms.length} từ vào Pocket` : "Thêm vào Pocket"}
           </button>
         </div>
       </form>

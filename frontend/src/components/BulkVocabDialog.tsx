@@ -17,23 +17,33 @@ interface Row {
 
 const key = (term: string) => term.trim().toLowerCase();
 
+/** Splits typed words on commas (and semicolons): "Haus, Auto, Baum" → three words. */
+export function splitTerms(text: string): string[] {
+  return text
+    .split(/[,;]/)
+    .map((t) => t.trim())
+    .filter(Boolean);
+}
+
 /**
- * One entry per line. A meaning may follow after a tab (pasted from a spreadsheet),
- * " = ", " - " / " – " or ":" — "die Zeitung = newspaper". A line without a meaning
- * but with commas or semicolons is a list of words: "Haus, Auto, Baum".
+ * Different words are separated by commas (or new lines): "Haus, Auto, Baum".
+ * Each word may carry its meaning after " = ", " - " / " – " or ":" —
+ * "der Bahnhof = train station, die Zeitung = newspaper". A line with a tab is a
+ * spreadsheet row (word<Tab>meaning) and is kept whole, commas included.
  */
 export function parseVocabList(text: string): { term: string; meaning: string }[] {
   const out: { term: string; meaning: string }[] = [];
   for (const raw of text.split(/\r?\n/)) {
     const line = raw.replace(/^\s*(?:[-*•·]|\d+[.)])\s+/, "").trim(); // bullets / numbering
     if (!line) continue;
-    const m = line.match(/^(.+?)(?:\t+|\s*=\s*|\s+[-–—]\s+|\s*:\s+)(.+)$/);
-    if (m) {
-      out.push({ term: m[1].trim(), meaning: m[2].trim() });
-    } else if (/[,;]/.test(line)) {
-      for (const part of line.split(/[,;]/)) if (part.trim()) out.push({ term: part.trim(), meaning: "" });
-    } else {
-      out.push({ term: line, meaning: "" });
+    const row = line.match(/^([^\t]+)\t+(.+)$/);
+    if (row) {
+      out.push({ term: row[1].trim(), meaning: row[2].trim() });
+      continue;
+    }
+    for (const part of splitTerms(line)) {
+      const m = part.match(/^(.+?)(?:\s*=\s*|\s+[-–—]\s+|\s*:\s+)(.+)$/);
+      out.push(m ? { term: m[1].trim(), meaning: m[2].trim() } : { term: part, meaning: "" });
     }
   }
   return out;
@@ -188,11 +198,11 @@ export default function BulkVocabDialog({
               addFromPaste();
             }
           }}
-          placeholder={"Dán hoặc gõ danh sách, mỗi dòng một từ:\ndie Zeitung\nder Bahnhof = train station\nHaus, Auto, Baum"}
+          placeholder={"Các từ cách nhau bằng dấu phẩy (hoặc xuống dòng):\nHaus, Auto, Baum\nder Bahnhof = train station, die Zeitung = newspaper"}
           className={`${input} h-28 font-mono`}
         />
         <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-          <p className="text-xs text-slate-400">Nghĩa (tuỳ chọn) đặt sau dấu “=”, “-” hoặc Tab. Ctrl/⌘ + Enter để thêm.</p>
+          <p className="text-xs text-slate-400">Các từ cách nhau bằng dấu “,”. Nghĩa (tuỳ chọn) đặt sau “=” hoặc “-”. Ctrl/⌘ + Enter để thêm.</p>
           <button
             type="button"
             onClick={addFromPaste}
