@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { Link } from "react-router-dom";
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import { ColumnChart, GoalRing, MasteryBar, StatTile } from "../components/Charts";
 import BulkVocabDialog, { splitTerms } from "../components/BulkVocabDialog";
 import Cover from "../components/Cover";
@@ -48,8 +48,17 @@ function shuffle<T>(xs: T[]): T[] {
 export default function Pocket() {
   const [entries, setEntries] = useState<VocabEntry[] | null>(null);
   const [stats, setStats] = useState<VocabStats | null>(null);
-  const [tab, setTab] = useState<"overview" | "words">("overview");
-  const [review, setReview] = useState<VocabEntry[] | null>(null);
+  const [tabState, setTab] = useState<"overview" | "packages" | "words">("overview");
+  // ?package=<id> opens that package's page (so the browser's Back button returns to the list).
+  const [params, setParams] = useSearchParams();
+  const viewId = Number(params.get("package")) || null;
+  const tab = viewId ? "packages" : tabState;
+  const openPackage = (id: number) => {
+    setTab("packages");
+    setParams({ package: String(id) });
+  };
+  const closePackage = () => setParams({});
+  const [review, setReview] = useState<{ cards: VocabEntry[]; label?: string } | null>(null);
   const [error, setError] = useState("");
   const [canDraw, setCanDraw] = useState(false);
   const [prefs, setPrefs] = usePrefs();
@@ -89,6 +98,7 @@ export default function Pocket() {
       setPackages((ps) => ps.filter((x) => x.id !== p.id));
       setEntries((es) => es?.map((v) => (v.packageId === p.id ? { ...v, packageId: null } : v)) ?? null);
       setPkg("all");
+      if (viewId === p.id) closePackage();
     } catch (e) {
       dialog.alert("Không xoá được", e instanceof Error ? e.message : "");
     }
@@ -113,11 +123,31 @@ export default function Pocket() {
     [shown],
   );
   const currentPackage = typeof pkg === "number" ? packages.find((p) => p.id === pkg) : undefined;
+  const viewed = viewId ? packages.find((p) => p.id === viewId) : undefined;
+  // New words go into the package being viewed, else the filtered one, else the last one used.
+  const defaultPackage = viewed ? viewed.id : typeof pkg === "number" ? pkg : lastPackage(packages);
+  const filterLabel = currentPackage ? `📦 ${currentPackage.name}` : pkg === "none" ? "Chưa phân loại" : undefined;
+
+  // Per package: how many words, and how many are due now (for "Ôn theo package").
+  const packageRows = useMemo(() => {
+    const now = Date.now();
+    const row = (key: PackageFilter, name: string): PackageRow => ({ key, name, words: [], due: [] });
+    const rows = [...packages.map((p) => row(p.id, `📦 ${p.name}`)), row("none", "Chưa phân loại")];
+    const byKey = new Map(rows.map((r) => [r.key, r]));
+    for (const v of entries ?? []) {
+      const r = byKey.get(v.packageId ?? "none") ?? byKey.get("none")!;
+      r.words.push(v);
+      if (new Date(v.dueAt).getTime() <= now) r.due.push(v);
+    }
+    for (const r of rows) r.due.sort((a, b) => a.dueAt.localeCompare(b.dueAt));
+    return rows.filter((r) => r.words.length > 0 || r.key !== "none");
+  }, [entries, packages]);
 
   if (review) {
     return (
       <Review
-        cards={review}
+        label={review.label}
+        cards={review.cards}
         listen={listen}
         onGraded={(v) => setEntries((es) => es?.map((x) => (x.id === v.id ? v : x)) ?? null)}
         onDeleted={(id) => setEntries((es) => es?.filter((x) => x.id !== id) ?? null)}
@@ -150,12 +180,16 @@ export default function Pocket() {
             {(
               [
                 ["overview", "Tổng quan"],
+                ["packages", `Package${packages.length ? ` (${packages.length})` : ""}`],
                 ["words", `Từ vựng${entries ? ` (${entries.length})` : ""}`],
               ] as const
             ).map(([t, label]) => (
               <button
                 key={t}
-                onClick={() => setTab(t)}
+                onClick={() => {
+                  setTab(t);
+                  if (viewId) closePackage();
+                }}
                 className={`rounded-lg px-4 py-1.5 text-sm font-medium ${tab === t ? "bg-indigo-600 text-white" : "text-slate-500 hover:text-slate-800"}`}
               >
                 {label}
@@ -165,7 +199,7 @@ export default function Pocket() {
         </div>
       </div>
 
-      {entries && (packages.length > 0 || entries.length > 0) && (
+      {entries && tab !== "packages" && (packages.length > 0 || entries.length > 0) && (
         <PackageBar
           packages={packages}
           entries={entries}
@@ -179,7 +213,42 @@ export default function Pocket() {
       {error && <p className="mt-6 rounded-lg bg-red-50 px-4 py-3 text-red-700">{error}</p>}
       {!entries && !error && <Spinner className="mx-auto mt-16" />}
 
-      {entries && entries.length > 0 && shown.length === 0 && (
+      {entries && tab === "packages" && !viewId && (
+        <PackageGrid rows={packageRows} onOpen={openPackage} onCreated={addPackage} onReview={(r, random) => setReview({ cards: random ? shuffle(r.words).slice(0, 50) : r.due.slice(0, 50), label: r.name })} />
+      )}
+      {entries && tab === "packages" && viewId && !viewed && (
+        <p className="mt-10 text-center text-slate-500">
+          Không tìm thấy package này.{" "}
+          <button onClick={closePackage} className="text-indigo-700 hover:underline">
+            ← Tất cả package
+          </button>
+        </p>
+      )}
+      {entries && viewed && (
+        <PackageDetail
+          pkg={viewed}
+          row={packageRows.find((r) => r.key === viewed.id)}
+          onBack={closePackage}
+          onRename={(name) => renamePackage(viewed, name)}
+          onDelete={() => deletePackage(viewed)}
+          onAdd={() => setEditor("new")}
+          onAddMany={() => setBulk(true)}
+          onReview={(cards) => setReview({ cards, label: `📦 ${viewed.name}` })}
+        >
+          <Words
+            entries={entries.filter((v) => v.packageId === viewed.id)}
+            setEntries={setEntries}
+            listen={listen}
+            canDraw={canDraw}
+            rate={prefs.rate}
+            setRate={(rate) => setPrefs({ rate })}
+            onEdit={setEditor}
+            onChanged={() => api.vocabStats().then(setStats, () => {})}
+          />
+        </PackageDetail>
+      )}
+
+      {entries && tab !== "packages" && entries.length > 0 && shown.length === 0 && (
         <div className="mt-12 text-center text-slate-500">
           <p className="text-4xl">📦</p>
           <p className="mt-3">{currentPackage ? `Package “${currentPackage.name}” chưa có từ nào.` : "Không có từ nào chưa phân loại."}</p>
@@ -201,8 +270,12 @@ export default function Pocket() {
           total={shown.length}
           goal={prefs.dailyGoal}
           setGoal={(g) => setPrefs({ dailyGoal: g })}
-          onReview={() => setReview(due.slice(0, 50))}
-          onReviewAll={() => setReview(shuffle(shown).slice(0, 50))}
+          scope={filterLabel}
+          onReview={() => setReview({ cards: due.slice(0, 50), label: filterLabel })}
+          onReviewAll={() => setReview({ cards: shuffle(shown).slice(0, 50), label: filterLabel })}
+          packageRows={pkg === "all" && packages.length > 0 ? packageRows : []}
+          onReviewPackage={(r, random) => setReview({ cards: random ? shuffle(r.words).slice(0, 50) : r.due.slice(0, 50), label: r.name })}
+          onOpenPackage={(r) => (typeof r.key === "number" ? openPackage(r.key) : (setPkg(r.key), setTab("words")))}
           onAddWords={() => setEditor("new")}
         />
       )}
@@ -226,12 +299,12 @@ export default function Pocket() {
           existing={entries ?? []}
           packages={packages}
           onPackageCreated={addPackage}
-          defaultPackage={typeof pkg === "number" ? pkg : lastPackage(packages)}
+          defaultPackage={defaultPackage}
           onClose={() => setBulk(false)}
           onAdded={(added) => {
             setEntries((es) => [...added, ...(es ?? [])]);
             api.vocabStats().then(setStats, () => {});
-            setTab("words");
+            if (!viewId) setTab("words");
           }}
         />
       )}
@@ -240,7 +313,7 @@ export default function Pocket() {
         <VocabDialog
           packages={packages}
           onPackageCreated={addPackage}
-          defaultPackage={typeof pkg === "number" ? pkg : lastPackage(packages)}
+          defaultPackage={defaultPackage}
           onBulk={() => {
             setEditor(null);
             setBulk(true);
@@ -250,7 +323,7 @@ export default function Pocket() {
           onSaved={(v, isNew) => {
             setEntries((es) => (isNew ? [v, ...(es ?? [])] : (es?.map((x) => (x.id === v.id ? v : x)) ?? null)));
             api.vocabStats().then(setStats, () => {});
-            if (isNew) setTab("words");
+            if (isNew && !viewId) setTab("words");
           }}
         />
       )}
@@ -259,6 +332,8 @@ export default function Pocket() {
 }
 
 type PackageFilter = "all" | "none" | number;
+/** One package (or the unfiled words) with its words and the ones due now. */
+type PackageRow = { key: PackageFilter; name: string; words: VocabEntry[]; due: VocabEntry[] };
 
 /** Package chips: filter the Pocket by package; rename or delete the selected one. */
 function PackageBar({
@@ -346,6 +421,242 @@ function PackageBar({
   );
 }
 
+/** A heading that turns into a text field to rename it. */
+function EditableName({ name, onSave }: { name: string; onSave: (name: string) => Promise<void> }) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function save() {
+    const n = draft?.trim() ?? "";
+    if (!n || n === name) return setDraft(null);
+    setBusy(true);
+    await onSave(n);
+    setBusy(false);
+    setDraft(null);
+  }
+
+  if (draft === null) {
+    return (
+      <div className="flex min-w-0 items-center gap-2">
+        <h2 className="min-w-0 break-words text-2xl font-bold text-slate-900 sm:text-3xl">📦 {name}</h2>
+        <button
+          onClick={() => setDraft(name)}
+          className="shrink-0 rounded-lg px-2 py-1 text-sm text-slate-500 ring-1 ring-slate-200 hover:bg-slate-100 hover:text-slate-800"
+          title="Đổi tên package"
+          aria-label="Đổi tên package"
+        >
+          ✏️ Đổi tên
+        </button>
+      </div>
+    );
+  }
+  return (
+    <form
+      className="flex w-full max-w-lg gap-2"
+      onSubmit={(e) => {
+        e.preventDefault();
+        save();
+      }}
+    >
+      <input
+        autoFocus
+        value={draft}
+        maxLength={60}
+        disabled={busy}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => e.key === "Escape" && setDraft(null)}
+        onFocus={(e) => e.target.select()}
+        className="min-w-0 flex-1 rounded-lg border border-slate-300 bg-transparent px-3 py-2 text-xl font-semibold outline-none focus:border-indigo-500"
+      />
+      <button disabled={busy || !draft.trim()} className="shrink-0 rounded-lg bg-indigo-600 px-4 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-40">
+        {busy ? "…" : "Lưu"}
+      </button>
+      <button type="button" onClick={() => setDraft(null)} className="shrink-0 rounded-lg px-3 text-sm text-slate-500 hover:bg-slate-100">
+        Huỷ
+      </button>
+    </form>
+  );
+}
+
+const STATE_ORDER: CardState[] = ["new", "learning", "young", "mature"];
+const masteryParts = (words: VocabEntry[]) => STATE_ORDER.map((st) => ({ label: STATE_LABEL[st], value: words.filter((v) => v.state === st).length }));
+
+/** Every package as a card (words, due, mastery), plus creating a new one. */
+function PackageGrid({
+  rows,
+  onOpen,
+  onCreated,
+  onReview,
+}: {
+  rows: PackageRow[];
+  onOpen: (id: number) => void;
+  onCreated: (p: VocabPackage) => void;
+  onReview: (r: PackageRow, random: boolean) => void;
+}) {
+  const [name, setName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  async function create(e: FormEvent) {
+    e.preventDefault();
+    if (!name.trim()) return;
+    setBusy(true);
+    setErr("");
+    try {
+      const p = await api.createVocabPackage(name.trim());
+      onCreated(p);
+      setName("");
+      onOpen(p.id);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Không tạo được package");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="mt-8">
+      <ul className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        {rows
+          .filter((r) => typeof r.key === "number")
+          .map((r) => (
+            <li key={String(r.key)} className="flex flex-col rounded-2xl bg-surface p-5 ring-1 ring-slate-200 transition hover:ring-indigo-300">
+              <button onClick={() => onOpen(r.key as number)} className="text-left">
+                <span className="block truncate text-lg font-semibold text-slate-900">{r.name}</span>
+                <span className="mt-0.5 block text-sm text-slate-500">
+                  {r.words.length} từ
+                  {" · "}
+                  {r.due.length > 0 ? <span className="text-amber-700">{r.due.length} đến hạn</span> : "không có thẻ đến hạn"}
+                </span>
+              </button>
+              <div className="mt-4">{r.words.length > 0 ? <MasteryBar parts={masteryParts(r.words)} /> : <p className="text-sm text-slate-400">Chưa có từ nào.</p>}</div>
+              <div className="mt-auto flex gap-2 pt-4">
+                <button onClick={() => onOpen(r.key as number)} className="rounded-lg px-3 py-1.5 text-sm font-medium text-indigo-700 ring-1 ring-indigo-200 hover:bg-indigo-50">
+                  Xem package →
+                </button>
+                <button
+                  onClick={() => onReview(r, false)}
+                  disabled={r.due.length === 0}
+                  className="ml-auto rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-30"
+                >
+                  ▶ Ôn{r.due.length > 0 && ` ${Math.min(r.due.length, 50)}`}
+                </button>
+              </div>
+            </li>
+          ))}
+        <li className="rounded-2xl border border-dashed border-slate-300 p-5">
+          <form onSubmit={create}>
+            <p className="font-semibold text-slate-700">＋ Package mới</p>
+            <input
+              value={name}
+              maxLength={60}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Tên package, VD: A2 Kapitel 3"
+              className="mt-3 w-full rounded-lg border border-slate-300 bg-transparent px-3 py-2 text-sm outline-none focus:border-indigo-500"
+            />
+            {err && <p className="mt-2 text-xs text-red-600">{err}</p>}
+            <button disabled={busy || !name.trim()} className="mt-3 rounded-lg bg-indigo-600 px-4 py-1.5 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-40">
+              Tạo package
+            </button>
+          </form>
+        </li>
+      </ul>
+      {rows.some((r) => r.key === "none" && r.words.length > 0) && (
+        <p className="mt-4 text-sm text-slate-400">
+          {rows.find((r) => r.key === "none")!.words.length} từ chưa thuộc package nào. Mở “Sửa” ở một từ để chuyển nó vào package.
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** One package: its name (editable), numbers, review buttons and its words. */
+function PackageDetail({
+  pkg,
+  row,
+  onBack,
+  onRename,
+  onDelete,
+  onAdd,
+  onAddMany,
+  onReview,
+  children,
+}: {
+  pkg: VocabPackage;
+  row?: PackageRow;
+  onBack: () => void;
+  onRename: (name: string) => Promise<void>;
+  onDelete: () => void;
+  onAdd: () => void;
+  onAddMany: () => void;
+  onReview: (cards: VocabEntry[]) => void;
+  children: ReactNode;
+}) {
+  const words = row?.words ?? [];
+  const due = row?.due ?? [];
+  const mature = words.filter((v) => v.state === "mature").length;
+  return (
+    <div className="mt-6">
+      <button onClick={onBack} className="text-sm text-slate-400 hover:text-slate-700">
+        ← Tất cả package
+      </button>
+      <div className="mt-2 flex flex-wrap items-start justify-between gap-4">
+        <EditableName key={pkg.id} name={pkg.name} onSave={onRename} />
+        <button onClick={onDelete} className="rounded-lg px-3 py-1.5 text-sm text-red-500 hover:bg-red-50">
+          🗑 Xoá package
+        </button>
+      </div>
+
+      <section className="mt-5 rounded-2xl bg-surface p-5 ring-1 ring-slate-200">
+        <div className="grid grid-cols-3 gap-3 text-center sm:max-w-md sm:text-left">
+          <div>
+            <p className="text-2xl font-semibold text-slate-900">{words.length}</p>
+            <p className="text-xs text-slate-400">từ</p>
+          </div>
+          <div>
+            <p className={`text-2xl font-semibold ${due.length ? "text-amber-700" : "text-slate-900"}`}>{due.length}</p>
+            <p className="text-xs text-slate-400">đến hạn ôn</p>
+          </div>
+          <div>
+            <p className="text-2xl font-semibold text-slate-900">{mature}</p>
+            <p className="text-xs text-slate-400">đã thuộc</p>
+          </div>
+        </div>
+        {words.length > 0 && (
+          <div className="mt-4">
+            <MasteryBar parts={masteryParts(words)} />
+          </div>
+        )}
+        <div className="mt-5 flex flex-wrap gap-2">
+          <button
+            onClick={() => onReview(due.slice(0, 50))}
+            disabled={due.length === 0}
+            className="rounded-xl bg-indigo-600 px-5 py-2.5 font-semibold text-white hover:bg-indigo-500 disabled:opacity-40"
+          >
+            ▶ Ôn tập{due.length > 0 && ` (${Math.min(due.length, 50)})`}
+          </button>
+          <button
+            onClick={() => onReview(shuffle(words).slice(0, 50))}
+            disabled={words.length === 0}
+            className="rounded-xl px-4 py-2.5 text-sm text-slate-600 ring-1 ring-slate-200 hover:bg-slate-100 disabled:opacity-40"
+          >
+            🔀 Ôn ngẫu nhiên
+          </button>
+          <span className="flex-1" />
+          <button onClick={onAdd} className="rounded-xl px-4 py-2.5 text-sm font-semibold text-indigo-700 ring-1 ring-indigo-200 hover:bg-indigo-50">
+            ＋ Thêm từ
+          </button>
+          <button onClick={onAddMany} className="rounded-xl px-4 py-2.5 text-sm font-semibold text-indigo-700 ring-1 ring-indigo-200 hover:bg-indigo-50">
+            ＋ Thêm nhiều từ
+          </button>
+        </div>
+      </section>
+
+      {words.length === 0 ? <p className="mt-8 text-center text-slate-500">Package này chưa có từ nào. Thêm từ bằng các nút ở trên.</p> : children}
+    </div>
+  );
+}
+
 // ---------------- overview / statistics ----------------
 
 function Overview({
@@ -357,7 +668,16 @@ function Overview({
   onReview,
   onReviewAll,
   onAddWords,
+  scope,
+  packageRows,
+  onReviewPackage,
+  onOpenPackage,
 }: {
+  /** The package being shown, when the Pocket is filtered. */
+  scope?: string;
+  packageRows: PackageRow[];
+  onReviewPackage: (r: PackageRow, random: boolean) => void;
+  onOpenPackage: (r: PackageRow) => void;
   stats: VocabStats | null;
   dueCount: number;
   total: number;
@@ -404,7 +724,7 @@ function Overview({
           </div>
         </div>
         <div className="min-w-0 flex-1">
-          <p className="text-sm text-slate-500">Hôm nay</p>
+          <p className="text-sm text-slate-500">Hôm nay{scope && <> · <span className="font-medium text-indigo-700">{scope}</span></>}</p>
           <p className="mt-1 text-2xl font-semibold text-slate-900">{dueCount > 0 ? `${dueCount} thẻ đến hạn ôn` : "Đã ôn xong hôm nay"}</p>
           <p className="mt-1 text-slate-500">{nudge}</p>
           <div className="mt-4 flex flex-wrap items-center gap-2">
@@ -431,6 +751,47 @@ function Overview({
           </div>
         </div>
       </section>
+
+      {/* Review one package at a time */}
+      {packageRows.length > 0 && (
+        <section className="rounded-2xl bg-surface p-5 ring-1 ring-slate-200">
+          <h2 className="mb-3 text-sm font-semibold text-slate-600">Ôn theo package</h2>
+          <ul className="divide-y divide-slate-100">
+            {packageRows.map((r) => {
+              const mature = r.words.filter((v) => v.state === "mature").length;
+              return (
+                <li key={String(r.key)} className="flex flex-wrap items-center gap-x-4 gap-y-2 py-3">
+                  <button onClick={() => onOpenPackage(r)} className="min-w-0 flex-1 text-left" title="Xem package này">
+                    <span className="block truncate font-medium text-slate-900 hover:text-indigo-700">{r.name}</span>
+                    <span className="text-xs text-slate-400">
+                      {r.words.length} từ · đã thuộc {mature}
+                      {" · "}
+                      {r.due.length > 0 ? <span className="text-amber-700">{r.due.length} đến hạn</span> : "không có thẻ đến hạn"}
+                    </span>
+                  </button>
+                  <div className="flex shrink-0 gap-2">
+                    <button
+                      onClick={() => onReviewPackage(r, false)}
+                      disabled={r.due.length === 0}
+                      className="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-30"
+                    >
+                      ▶ Ôn{r.due.length > 0 && ` ${Math.min(r.due.length, 50)}`}
+                    </button>
+                    <button
+                      onClick={() => onReviewPackage(r, true)}
+                      disabled={r.words.length === 0}
+                      className="rounded-lg px-3 py-1.5 text-sm text-slate-600 ring-1 ring-slate-200 hover:bg-slate-100 disabled:opacity-30"
+                      title="Ôn ngẫu nhiên các từ trong package, kể cả chưa đến hạn"
+                    >
+                      🔀
+                    </button>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
 
       {/* Headline numbers */}
       <section className="grid grid-cols-2 gap-4 lg:grid-cols-4">
@@ -794,12 +1155,15 @@ function Words({
 // ---------------- review session ----------------
 
 function Review({
+  label,
   cards,
   listen,
   onGraded,
   onDeleted,
   onExit,
 }: {
+  /** What is being reviewed (a package), shown in the header. */
+  label?: string;
   cards: VocabEntry[];
   listen: (v: VocabEntry) => void;
   onGraded: (v: VocabEntry) => void;
@@ -878,6 +1242,7 @@ function Review({
       <div className="mx-auto max-w-md px-4 py-24 text-center">
         <div className="text-5xl">🎉</div>
         <h1 className="mt-4 text-2xl font-bold text-slate-900">Xong lượt ôn!</h1>
+        {label && <p className="mt-1 text-slate-500">{label}</p>}
         <div className="mt-8 grid grid-cols-3 gap-3">
           <StatTile label="Thẻ" value={done} />
           <StatTile label="Nhớ" value={`${Math.round((tally.remembered / answered) * 100)}%`} />
@@ -901,7 +1266,8 @@ function Review({
         <button onClick={onExit} className="text-slate-400 hover:text-slate-800">
           ← Thoát
         </button>
-        <span className="text-slate-400">
+        <span className="min-w-0 truncate px-2 text-center text-slate-400">
+          {label && <span className="font-medium text-indigo-700">{label} · </span>}
           Đã ôn {done} · còn {remaining}
         </span>
         <label className="flex cursor-pointer items-center gap-2 text-slate-500">
