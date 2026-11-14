@@ -86,3 +86,9 @@ RETURNING *;
 
 -- name: DeleteVocabPackage :execrows
 DELETE FROM vocab_packages WHERE id = $1 AND user_id = $2;
+
+-- Files several of the user's words into one package (NULL = no package).
+-- name: MoveVocabToPackage :execrows
+UPDATE vocab_entries
+SET package_id = sqlc.narg(package_id), updated_at = now()
+WHERE user_id = sqlc.arg(user_id) AND id = ANY(sqlc.arg(ids)::bigint[]);

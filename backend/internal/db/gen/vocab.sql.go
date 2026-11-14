@@ -334,6 +334,27 @@ func (q *Queries) LogVocabReview(ctx context.Context, arg LogVocabReviewParams) 
 	return err
 }
 
+const moveVocabToPackage = `-- name: MoveVocabToPackage :execrows
+UPDATE vocab_entries
+SET package_id = $1, updated_at = now()
+WHERE user_id = $2 AND id = ANY($3::bigint[])
+`
+
+type MoveVocabToPackageParams struct {
+	PackageID pgtype.Int8
+	UserID    int64
+	Ids       []int64
+}
+
+// Files several of the user's words into one package (NULL = no package).
+func (q *Queries) MoveVocabToPackage(ctx context.Context, arg MoveVocabToPackageParams) (int64, error) {
+	result, err := q.db.Exec(ctx, moveVocabToPackage, arg.PackageID, arg.UserID, arg.Ids)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const renameVocabPackage = `-- name: RenameVocabPackage :one
 UPDATE vocab_packages SET name = $3 WHERE id = $1 AND user_id = $2
 RETURNING id, user_id, name, created_at

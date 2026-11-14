@@ -109,6 +109,7 @@ func (s *Server) Handler() http.Handler {
 	protected("GET /api/topics/{id}/vocabulary", s.topicVocabulary)
 	protected("GET /api/playlists/{id}/participants", s.playlistParticipants)
 	protected("POST /api/vocab/bulk", s.bulkAddVocab)
+	protected("POST /api/vocab/move", s.moveVocab)
 
 	protected("GET /api/simulations", s.listSimulations)
 	protected("POST /api/simulations", s.createSimulation)

@@ -535,3 +535,27 @@ func (s *Server) deleteVocabPackage(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
+
+// moveVocab files several words into one package at once (packageId null = out of any package).
+func (s *Server) moveVocab(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		IDs       []int64 `json:"ids"`
+		PackageID *int64  `json:"packageId"`
+	}
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	if len(in.IDs) == 0 || len(in.IDs) > 2000 {
+		writeError(w, http.StatusBadRequest, "cần chọn từ 1 đến 2000 từ")
+		return
+	}
+	if !s.checkPackage(w, r, in.PackageID) {
+		return
+	}
+	n, err := s.store.MoveVocab(r.Context(), auth.UserID(r.Context()), in.IDs, in.PackageID)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]int{"moved": n})
+}

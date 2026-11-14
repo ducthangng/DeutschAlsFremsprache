@@ -225,3 +225,9 @@ func (s *Store) DeleteVocabPackage(ctx context.Context, userID, id int64) error 
 	}
 	return nil
 }
+
+// MoveVocab puts the user's words ids into a package (nil = none) and returns how many moved.
+func (s *Store) MoveVocab(ctx context.Context, userID int64, ids []int64, packageID *int64) (int, error) {
+	n, err := s.q.MoveVocabToPackage(ctx, gen.MoveVocabToPackageParams{UserID: userID, Ids: ids, PackageID: optInt8(packageID)})
+	return int(n), err
+}

@@ -54,6 +54,22 @@ func TestVocabPackages(t *testing.T) {
 		t.Fatalf("list: %+v", list)
 	}
 
+	// Moving several words at once; someone else's words are left alone.
+	var theirWord store.VocabEntry
+	stranger.json("POST", "/api/vocab", map[string]any{"language": "en-US", "term": "fig"}, &theirWord)
+	var loose []store.VocabEntry
+	c.json("POST", "/api/vocab/bulk", map[string]any{"language": "en-US", "items": []map[string]string{{"term": "lime"}, {"term": "date"}}}, &struct{ Added *[]store.VocabEntry }{&loose})
+	var moved struct{ Moved int }
+	if code := c.json("POST", "/api/vocab/move", map[string]any{"ids": []int64{loose[0].ID, loose[1].ID, theirWord.ID}, "packageId": p.ID}, &moved); code != 200 || moved.Moved != 2 {
+		t.Fatalf("move: %d %+v", code, moved)
+	}
+	if code := stranger.json("POST", "/api/vocab/move", map[string]any{"ids": []int64{theirWord.ID}, "packageId": p.ID}, nil); code != 400 {
+		t.Fatalf("move into foreign package: %d", code)
+	}
+	if c.json("GET", "/api/vocab/packages", nil, &list); list[0].Words != 5 {
+		t.Fatalf("after move: %+v", list)
+	}
+
 	// Moving a word out of its package.
 	if code := c.json("PUT", "/api/vocab/"+itoa(v.ID), map[string]any{"term": "apple", "packageId": nil}, &v); code != 200 || v.PackageID != nil {
 		t.Fatalf("unfile: %d %+v", code, v.PackageID)
@@ -66,7 +82,7 @@ func TestVocabPackages(t *testing.T) {
 		t.Fatalf("delete: %d", code)
 	}
 	var words []store.VocabEntry
-	if c.json("GET", "/api/vocab", nil, &words); len(words) != 3 || words[0].PackageID != nil {
+	if c.json("GET", "/api/vocab", nil, &words); len(words) != 5 || words[0].PackageID != nil {
 		t.Fatalf("words after delete: %+v", words)
 	}
 }

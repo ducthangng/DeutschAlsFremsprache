@@ -65,6 +65,7 @@ export default function Pocket() {
   const [editor, setEditor] = useState<VocabEntry | "new" | null>(null); // the add / edit popup
   const [bulk, setBulk] = useState(false); // add many words at once
   const [packages, setPackages] = useState<VocabPackage[]>([]);
+  const [packagesError, setPackagesError] = useState("");
   // Which words the page shows and reviews: all, one package, or words without one.
   const [pkg, setPkg] = useState<PackageFilter>("all");
   const playback = useRef<Playback | null>(null);
@@ -73,7 +74,13 @@ export default function Pocket() {
   const reload = () => {
     api.listVocab().then(setEntries, (e) => setError(e.message));
     api.vocabStats().then(setStats, () => {});
-    api.vocabPackages().then(setPackages, () => {});
+    api.vocabPackages().then(
+      (ps) => {
+        setPackages(ps);
+        setPackagesError("");
+      },
+      (e) => setPackagesError(e instanceof Error ? e.message : "lỗi không rõ"),
+    );
   };
   const addPackage = (p: VocabPackage) => setPackages((ps) => [...ps.filter((x) => x.id !== p.id), p].sort((a, b) => a.name.localeCompare(b.name)));
 
@@ -211,6 +218,14 @@ export default function Pocket() {
       )}
 
       {error && <p className="mt-6 rounded-lg bg-red-50 px-4 py-3 text-red-700">{error}</p>}
+      {packagesError && (
+        <p className="mt-6 flex flex-wrap items-center gap-3 rounded-lg bg-red-50 px-4 py-3 text-red-700">
+          Không tải được danh sách package ({packagesError}).
+          <button onClick={reload} className="rounded-lg px-3 py-1 text-sm ring-1 ring-red-200 hover:bg-red-100">
+            Thử lại
+          </button>
+        </p>
+      )}
       {!entries && !error && <Spinner className="mx-auto mt-16" />}
 
       {entries && tab === "packages" && !viewId && (
@@ -244,6 +259,8 @@ export default function Pocket() {
             setRate={(rate) => setPrefs({ rate })}
             onEdit={setEditor}
             onChanged={() => api.vocabStats().then(setStats, () => {})}
+            packages={packages}
+            onPackageCreated={addPackage}
           />
         </PackageDetail>
       )}
@@ -291,6 +308,8 @@ export default function Pocket() {
           setRate={(rate) => setPrefs({ rate })}
           onEdit={setEditor}
           onChanged={() => api.vocabStats().then(setStats, () => {})}
+          packages={packages}
+          onPackageCreated={addPackage}
         />
       )}
 
@@ -1037,8 +1056,12 @@ function Words({
   onEdit,
   onChanged,
   packageName,
+  packages,
+  onPackageCreated,
 }: {
   packageName?: (id: number) => string | undefined;
+  packages: VocabPackage[];
+  onPackageCreated: (p: VocabPackage) => void;
   entries: VocabEntry[];
   setEntries: (fn: (es: VocabEntry[] | null) => VocabEntry[] | null) => void;
   listen: (v: VocabEntry) => void;
@@ -1052,6 +1075,40 @@ function Words({
   const [lang, setLang] = useState<Language | "">("");
   const [query, setQuery] = useState("");
   const dialog = useDialog();
+  // Select several words, then file them into a package in one go.
+  const [selecting, setSelecting] = useState(false);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [target, setTarget] = useState<number | null>(() => lastPackage(packages));
+  const [moving, setMoving] = useState(false);
+
+  const toggle = (id: number) =>
+    setSelected((s) => {
+      const n = new Set(s);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+
+  function stopSelecting() {
+    setSelecting(false);
+    setSelected(new Set());
+  }
+
+  async function move() {
+    const ids = [...selected];
+    if (ids.length === 0) return;
+    setMoving(true);
+    try {
+      await api.moveVocab(ids, target);
+      const set = new Set(ids);
+      setEntries((es) => es?.map((v) => (set.has(v.id) ? { ...v, packageId: target } : v)) ?? null);
+      stopSelecting();
+    } catch (e) {
+      dialog.alert("Không chuyển được", e instanceof Error ? e.message : "");
+    } finally {
+      setMoving(false);
+    }
+  }
 
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -1098,16 +1155,65 @@ function Words({
             </option>
           ))}
         </select>
+        <button
+          onClick={() => (selecting ? stopSelecting() : setSelecting(true))}
+          className={`rounded-lg px-3 py-2 text-sm ring-1 ${selecting ? "bg-indigo-600 text-white ring-indigo-600" : "text-slate-600 ring-slate-300 hover:bg-slate-100"}`}
+        >
+          {selecting ? "✓ Xong chọn" : "☑ Chọn nhiều → package"}
+        </button>
         <div className="ml-auto text-sm">
           <SpeedControl compact rate={rate} onChange={setRate} />
         </div>
       </div>
+      {selecting && (
+        <div className="sticky top-16 z-10 mt-3 rounded-xl bg-surface p-3 shadow-lg ring-1 ring-indigo-200">
+          <div className="flex flex-wrap items-center gap-2 text-sm">
+            <span className="text-slate-600">
+              Đã chọn <b className="text-slate-900">{selected.size}</b>
+            </span>
+            <button onClick={() => setSelected(new Set(visible.map((v) => v.id)))} className="rounded-lg px-2 py-1 text-indigo-700 hover:bg-indigo-50">
+              Chọn tất cả {visible.length} từ đang hiện
+            </button>
+            {selected.size > 0 && (
+              <button onClick={() => setSelected(new Set())} className="rounded-lg px-2 py-1 text-slate-500 hover:bg-slate-100">
+                Bỏ chọn
+              </button>
+            )}
+          </div>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <PackageSelect className="min-w-0 flex-1" packages={packages} value={target} onChange={setTarget} onCreated={onPackageCreated} />
+            <button
+              onClick={move}
+              disabled={moving || selected.size === 0}
+              className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-40"
+            >
+              {moving ? "Đang chuyển…" : target === null ? `Bỏ ${selected.size} từ khỏi package` : `Chuyển ${selected.size} từ`}
+            </button>
+          </div>
+        </div>
+      )}
       {entries.length === 0 && <p className="mt-6 text-slate-500">Chưa có từ nào. Bấm ＋ Thêm từ để thêm từ đầu tiên.</p>}
       <ul className="mt-4 grid gap-2 xl:grid-cols-2">
           {visible.map((v) => {
             const isDue = new Date(v.dueAt).getTime() <= Date.now();
             return (
-              <li key={v.id} className="group flex items-center gap-4 rounded-xl bg-surface p-3 ring-1 ring-slate-200">
+              <li
+                key={v.id}
+                onClick={selecting ? () => toggle(v.id) : undefined}
+                className={`group flex items-center gap-4 rounded-xl bg-surface p-3 ring-1 ${selecting ? "cursor-pointer" : ""} ${
+                  selected.has(v.id) ? "ring-2 ring-indigo-500" : "ring-slate-200"
+                }`}
+              >
+                {selecting && (
+                  <input
+                    type="checkbox"
+                    checked={selected.has(v.id)}
+                    onChange={() => toggle(v.id)}
+                    onClick={(e) => e.stopPropagation()}
+                    className="h-5 w-5 shrink-0 accent-indigo-600"
+                    aria-label={`Chọn “${v.term}”`}
+                  />
+                )}
                 <Cover url={v.imageUrl} title={v.term} className="h-16 w-24 shrink-0 rounded-lg">
                   {drawing === v.id && (
                     <span className="absolute inset-0 flex items-center justify-center bg-black/60">
@@ -1131,7 +1237,7 @@ function Words({
                     {packageName && v.packageId !== null && packageName(v.packageId) && <> · 📦 {packageName(v.packageId)}</>}
                   </p>
                 </div>
-                <div className="flex shrink-0 gap-1 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100">
+                <div className={`flex shrink-0 gap-1 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100 ${selecting ? "hidden" : ""}`}>
                   {canDraw && !v.imageUrl && (
                     <button onClick={() => draw(v)} disabled={drawing !== null} className="rounded px-2 py-1 text-xs text-indigo-700 hover:bg-indigo-50" title="Tạo ảnh bằng AI">
                       ✨ Ảnh

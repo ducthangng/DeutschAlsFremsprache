@@ -125,7 +125,11 @@ export default function PackageSelect({
             Huỷ
           </button>
         </div>
-        {error && <p className="mt-1 text-xs text-red-600">{error}</p>}
+        {error && (
+          <p className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">
+            Chưa tạo được package: {error}. Từ sẽ không vào package nào cho tới khi tạo được.
+          </p>
+        )}
       </div>
     );
   }

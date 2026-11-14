@@ -806,6 +806,8 @@ export const api = {
   bulkAddVocab: (language: Language, topicId: number | null, items: VocabCandidate[], packageId: number | null = null) =>
     json<{ added: VocabEntry[]; skipped: string[] }>("/vocab/bulk", "POST", { language, topicId, items, packageId }),
   vocabPackages: () => json<VocabPackage[]>("/vocab/packages"),
+  /** Files several words into one package (null = out of any package). */
+  moveVocab: (ids: number[], packageId: number | null) => json<{ moved: number }>("/vocab/move", "POST", { ids, packageId }),
   createVocabPackage: (name: string) => json<VocabPackage>("/vocab/packages", "POST", { name }),
   renameVocabPackage: (id: number, name: string) => json<VocabPackage>(`/vocab/packages/${id}`, "PUT", { name }),
   /** The package's words stay in the Pocket, without a package. */
