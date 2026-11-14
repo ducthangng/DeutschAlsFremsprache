@@ -9,7 +9,7 @@ import VocabTable from "../components/VocabTable";
 import PackageSelect, { lastPackage } from "../components/PackageSelect";
 import { SpeedControl } from "../components/SpeechControls";
 import Spinner from "../components/Spinner";
-import { api, ApiError, GLOSS, LANGUAGES, type CardState, type Grade, type Language, type VocabEntry, type VocabInput, type VocabPackage, type VocabStats } from "../lib/api";
+import { api, ApiError, byNewest, GLOSS, LANGUAGES, type CardState, type Grade, type Language, type VocabEntry, type VocabInput, type VocabPackage, type VocabStats } from "../lib/api";
 import { speak, type Playback } from "../lib/audio";
 import { usePrefs } from "../lib/prefs";
 
@@ -83,7 +83,7 @@ export default function Pocket() {
       (e) => setPackagesError(e instanceof Error ? e.message : "lỗi không rõ"),
     );
   };
-  const addPackage = (p: VocabPackage) => setPackages((ps) => [...ps.filter((x) => x.id !== p.id), p].sort((a, b) => a.name.localeCompare(b.name)));
+  const addPackage = (p: VocabPackage) => setPackages((ps) => [...ps.filter((x) => x.id !== p.id), p].sort(byNewest));
 
   async function renamePackage(p: VocabPackage, name: string) {
     try {

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, ApiError, type VocabPackage } from "../lib/api";
+import { api, ApiError, byNewest, type VocabPackage } from "../lib/api";
 
 const LAST_KEY = "pocket.lastPackage";
 const NEW = "__new";
@@ -31,7 +31,7 @@ export function usePackages(initial?: VocabPackage[]) {
     api.vocabPackages().then(setPackages, () => setPackages([]));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const add = (p: VocabPackage) => setPackages((ps) => [...(ps ?? []), p].sort((a, b) => a.name.localeCompare(b.name)));
+  const add = (p: VocabPackage) => setPackages((ps) => [...(ps ?? []).filter((x) => x.id !== p.id), p].sort(byNewest));
   return [packages, add] as const;
 }
 

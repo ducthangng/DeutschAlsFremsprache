@@ -71,7 +71,7 @@ FROM vocab_packages p
 LEFT JOIN vocab_entries v ON v.package_id = p.id
 WHERE p.user_id = $1
 GROUP BY p.id
-ORDER BY lower(p.name);
+ORDER BY p.created_at DESC, p.id DESC; -- newest first
 
 -- name: GetVocabPackage :one
 SELECT * FROM vocab_packages WHERE id = $1 AND user_id = $2;

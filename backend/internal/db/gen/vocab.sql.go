@@ -205,6 +205,7 @@ func (q *Queries) GetVocab(ctx context.Context, arg GetVocabParams) (VocabEntry,
 }
 
 const getVocabPackage = `-- name: GetVocabPackage :one
+
 SELECT id, user_id, name, created_at FROM vocab_packages WHERE id = $1 AND user_id = $2
 `
 
@@ -213,6 +214,7 @@ type GetVocabPackageParams struct {
 	UserID int64
 }
 
+// newest first
 func (q *Queries) GetVocabPackage(ctx context.Context, arg GetVocabPackageParams) (VocabPackage, error) {
 	row := q.db.QueryRow(ctx, getVocabPackage, arg.ID, arg.UserID)
 	var i VocabPackage
@@ -275,7 +277,7 @@ FROM vocab_packages p
 LEFT JOIN vocab_entries v ON v.package_id = p.id
 WHERE p.user_id = $1
 GROUP BY p.id
-ORDER BY lower(p.name)
+ORDER BY p.created_at DESC, p.id DESC
 `
 
 type ListVocabPackagesRow struct {

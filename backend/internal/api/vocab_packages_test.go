@@ -78,6 +78,13 @@ func TestVocabPackages(t *testing.T) {
 	if code := c.json("PUT", "/api/vocab/packages/"+itoa(p.ID), map[string]string{"name": "Obst"}, &p); code != 200 || p.Name != "Obst" {
 		t.Fatalf("rename: %d %+v", code, p)
 	}
+	// Newest package first.
+	var newer store.VocabPackage
+	c.json("POST", "/api/vocab/packages", map[string]string{"name": "Arbeit"}, &newer)
+	if c.json("GET", "/api/vocab/packages", nil, &list); len(list) != 2 || list[0].ID != newer.ID || list[1].ID != p.ID {
+		t.Fatalf("order: %+v", list)
+	}
+
 	if code := c.json("DELETE", "/api/vocab/packages/"+itoa(p.ID), nil, nil); code != 204 {
 		t.Fatalf("delete: %d", code)
 	}

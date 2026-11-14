@@ -365,6 +365,9 @@ export interface VocabInput {
   packageId?: number | null;
 }
 
+/** Packages are shown newest first (as the API returns them). */
+export const byNewest = (a: VocabPackage, b: VocabPackage) => b.createdAt.localeCompare(a.createdAt) || b.id - a.id;
+
 /** A named group of Pocket words. */
 export interface VocabPackage {
   id: number;
