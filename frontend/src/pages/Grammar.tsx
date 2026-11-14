@@ -1,8 +1,8 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Modal, useDialog } from "../components/Dialog";
 import Spinner from "../components/Spinner";
-import { api, type GrammarModels, type GrammarSection, type GrammarSections, type GrammarSet, type VocabEntry } from "../lib/api";
+import { api, type GrammarModels, type GrammarSection, type GrammarSections, type GrammarSet, type VocabEntry, type VocabPackage } from "../lib/api";
 
 const LEVELS = ["A1", "A2", "B1", "B2", "C1", "C2"];
 
@@ -27,7 +27,10 @@ export const SECTIONS: { key: GrammarSection; icon: string; label: string; hint:
 const DEFAULT_COUNTS: GrammarSections = { multipleChoice: 10, rearrange: 10, reading: 10, listening: 10, writing: 10 };
 
 /** At most this many own words go into one set (the API refuses more). */
-const MAX_WORDS = 80;
+const MAX_WORDS = 80; // backend limit per exercise set
+
+/** A Pocket package id, or "none" for the words without a package. */
+type PackageKey = number | "none";
 
 const price = (v: number) => `$${v < 1 ? v.toFixed(2) : v.toFixed(v % 1 ? 2 : 0)}`;
 
@@ -111,11 +114,12 @@ export default function Grammar() {
   const [model, setModel] = useState("");
   const [counts, setCounts] = useState<GrammarSections>(DEFAULT_COUNTS);
   const [enabled, setEnabled] = useState<Record<GrammarSection, boolean>>({ multipleChoice: true, rearrange: true, reading: true, listening: true, writing: true });
-  // Vocabulary: a CEFR word list ("" = same as level) or words from the Pocket.
+  // Vocabulary: a CEFR word list ("" = same as level) or the words of Pocket packages.
   const [vocabSource, setVocabSource] = useState<"level" | "pocket">("level");
   const [vocabLevel, setVocabLevel] = useState("");
   const [pocket, setPocket] = useState<VocabEntry[] | null>(null);
-  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [packages, setPackages] = useState<VocabPackage[]>([]);
+  const [pickedPkgs, setPickedPkgs] = useState<Set<PackageKey>>(new Set());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [creating, setCreating] = useState(false);
@@ -131,11 +135,8 @@ export default function Grammar() {
       setSets(s);
       if (s[0]) setLevel(s[0].level);
     }, (e) => setError(e.message));
-    api.listVocab().then((v) => {
-      const german = v.filter((x) => x.language === "de-DE").sort((a, b) => (b.createdAt > a.createdAt ? 1 : -1));
-      setPocket(german);
-      setPicked(new Set(german.slice(0, 30).map((x) => x.term)));
-    }, () => setPocket([]));
+    api.listVocab().then((v) => setPocket(v.filter((x) => x.language === "de-DE")), () => setPocket([]));
+    api.vocabPackages().then(setPackages, () => {});
   }, []);
 
   const sections = Object.fromEntries(SECTIONS.map((x) => [x.key, enabled[x.key] ? counts[x.key] : 0])) as GrammarSections;
@@ -143,13 +144,37 @@ export default function Grammar() {
   const chosen = meta?.models.find((m) => m.id === model);
   const ownWords = vocabSource === "pocket";
 
-  function togglePick(term: string) {
-    setPicked((cur) => {
+  // German words per package ("none" = words without a package); only packages with German words are offered.
+  const byPackage = useMemo(() => {
+    const m = new Map<PackageKey, VocabEntry[]>();
+    for (const v of pocket ?? []) {
+      const k = v.packageId ?? "none";
+      m.set(k, [...(m.get(k) ?? []), v]);
+    }
+    return m;
+  }, [pocket]);
+  const packageChoices: { key: PackageKey; name: string; words: VocabEntry[] }[] = [
+    ...packages.map((p) => ({ key: p.id as PackageKey, name: `📦 ${p.name}`, words: byPackage.get(p.id) ?? [] })),
+    { key: "none" as PackageKey, name: "Chưa phân loại", words: byPackage.get("none") ?? [] },
+  ].filter((c) => c.words.length > 0);
+  const poolSize = packageChoices.filter((c) => pickedPkgs.has(c.key)).reduce((n, c) => n + c.words.length, 0);
+
+  function togglePackage(key: PackageKey) {
+    setPickedPkgs((cur) => {
       const next = new Set(cur);
-      if (next.has(term)) next.delete(term);
-      else if (next.size < MAX_WORDS) next.add(term);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       return next;
     });
+  }
+
+  /** The words of the chosen packages; above the limit, words not yet learnt well come first, at random. */
+  function packageWords(): string[] {
+    const pool = packageChoices.filter((c) => pickedPkgs.has(c.key)).flatMap((c) => c.words);
+    const terms = [...new Map(pool.map((v) => [v.term.toLowerCase(), v])).values()];
+    if (terms.length <= MAX_WORDS) return terms.map((v) => v.term);
+    const shuffled = terms.map((v) => ({ v, r: Math.random() + (v.state === "mature" ? 1 : 0) })).sort((a, b) => a.r - b.r);
+    return shuffled.slice(0, MAX_WORDS).map((x) => x.v.term);
   }
 
   async function create() {
@@ -161,7 +186,7 @@ export default function Grammar() {
         level,
         model,
         sections,
-        ...(ownWords ? { vocabulary: [...picked] } : { vocabLevel: vocabLevel || level }),
+        ...(ownWords ? { vocabulary: packageWords() } : { vocabLevel: vocabLevel || level }),
       });
       navigate(`/grammar/${g.id}`);
     } catch (e) {
@@ -276,7 +301,7 @@ export default function Grammar() {
               {(
                 [
                   ["level", "Theo khung A1–C2"],
-                  ["pocket", "Từ vựng của tôi"],
+                  ["pocket", "Package từ vựng của tôi"],
                 ] as const
               ).map(([k, label]) => (
                 <button
@@ -292,7 +317,7 @@ export default function Grammar() {
               <div className="mt-3 rounded-xl bg-white/[0.03] p-4 ring-1 ring-white/10">
                 {!pocket ? (
                   <Spinner className="h-5 w-5" />
-                ) : pocket.length === 0 ? (
+                ) : packageChoices.length === 0 ? (
                   <p className="text-sm text-white/50">
                     Pocket chưa có từ tiếng Đức nào.{" "}
                     <Link to="/pocket" className="text-indigo-300 underline hover:text-indigo-200">
@@ -303,33 +328,40 @@ export default function Grammar() {
                 ) : (
                   <>
                     <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-white/50">
-                      <span>
-                        Đã chọn {picked.size}/{Math.min(pocket.length, MAX_WORDS)} từ · AI sẽ đặt câu xoay quanh các từ này
-                      </span>
+                      <span>Chọn một hoặc nhiều package · AI sẽ đặt câu xoay quanh các từ trong đó</span>
                       <span className="flex gap-3">
-                        <button onClick={() => setPicked(new Set(pocket.slice(0, MAX_WORDS).map((x) => x.term)))} className="hover:text-white">
+                        <button onClick={() => setPickedPkgs(new Set(packageChoices.map((c) => c.key)))} className="hover:text-white">
                           Chọn tất cả
                         </button>
-                        <button onClick={() => setPicked(new Set())} className="hover:text-white">
+                        <button onClick={() => setPickedPkgs(new Set())} className="hover:text-white">
                           Bỏ chọn
                         </button>
                       </span>
                     </div>
-                    <div className="mt-3 flex max-h-48 flex-wrap gap-2 overflow-y-auto">
-                      {pocket.map((v) => {
-                        const on = picked.has(v.term);
+                    <div className="mt-3 flex max-h-56 flex-wrap gap-2 overflow-y-auto">
+                      {packageChoices.map((c) => {
+                        const on = pickedPkgs.has(c.key);
                         return (
                           <button
-                            key={v.id}
-                            onClick={() => togglePick(v.term)}
-                            title={v.meaning}
-                            className={`rounded-full px-3 py-1 text-xs ring-1 ${on ? "bg-indigo-500/90 text-white ring-indigo-400" : "text-white/60 ring-white/15 hover:text-white"}`}
+                            key={String(c.key)}
+                            onClick={() => togglePackage(c.key)}
+                            aria-pressed={on}
+                            title={c.words.slice(0, 12).map((v) => v.term).join(", ") + (c.words.length > 12 ? "…" : "")}
+                            className={`rounded-xl px-3 py-2 text-left text-sm ring-1 ${on ? "bg-indigo-500/90 text-white ring-indigo-400" : "text-white/70 ring-white/15 hover:text-white"}`}
                           >
-                            {v.term}
+                            {on ? "✓ " : ""}
+                            {c.name} <span className={on ? "text-white/70" : "text-white/40"}>· {c.words.length} từ</span>
                           </button>
                         );
                       })}
                     </div>
+                    <p className="mt-3 text-xs text-white/50">
+                      {poolSize === 0
+                        ? "Chưa chọn package nào."
+                        : poolSize <= MAX_WORDS
+                          ? `Bài sẽ dùng ${poolSize} từ.`
+                          : `Các package đã chọn có ${poolSize} từ; mỗi bài dùng tối đa ${MAX_WORDS} từ, ưu tiên từ chưa thuộc, chọn ngẫu nhiên.`}
+                    </p>
                   </>
                 )}
               </div>
@@ -386,7 +418,7 @@ export default function Grammar() {
           <div className="flex flex-wrap items-center gap-4">
             <button
               onClick={create}
-              disabled={busy || !meta?.enabled || grammar.trim().length < 2 || total === 0 || !model || (ownWords && picked.size === 0)}
+              disabled={busy || !meta?.enabled || grammar.trim().length < 2 || total === 0 || !model || (ownWords && poolSize === 0)}
               className="flex items-center gap-2 rounded-xl bg-white px-6 py-2.5 font-semibold text-black hover:bg-white/85 disabled:opacity-50"
             >
               {busy ? (
