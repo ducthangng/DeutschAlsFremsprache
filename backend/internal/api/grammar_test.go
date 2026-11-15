@@ -28,9 +28,10 @@ func fakeGrammarChat(t *testing.T) *httptest.Server {
 		"grammar_reading":   `{"title":"Ein Traum","passage":"Wenn ich reich wäre, würde ich reisen.","questions":[{"question":"Was würde er tun?","options":["reisen","arbeiten","schlafen","kochen"],"answer":0,"explanation":"…"}]}`,
 		"grammar_listening": `{"title":"Im Café","situation":"Hai người bạn nói chuyện.","speakers":[{"name":"Lena","gender":"female"},{"name":"Jonas","gender":"male"}],` +
 			`"segments":[{"speaker":"Lena","text":"Ich hätte gern einen Kaffee."},{"speaker":"Jonas","text":"Ich würde lieber Tee trinken."}],"questions":[` +
-			`{"kind":"choice","question":"Was möchte Lena?","options":["Kaffee","Tee","Wasser","Saft"],"answer":0,"accepted":[],"explanation":""},` +
-			`{"kind":"blank","question":"Ich ___ lieber Tee trinken.","options":["x"],"answer":3,"accepted":["würde"],"explanation":""},` +
-			`{"kind":"blank","question":"no gap here","options":[],"answer":-1,"accepted":["x"],"explanation":""}]}`,
+			`{"kind":"blank","quote":"Ich würde lieber Tee trinken.","question":"Ich ___ lieber Tee trinken.","correct":"","distractors":[],"accepted":["würde"],"explanation":""},` +
+			`{"kind":"choice","quote":"Ich hätte gern einen Kaffee.","question":"Was möchte Lena?","correct":"Kaffee","distractors":["Tee","Wasser","Saft"],"accepted":[],"explanation":""},` +
+			`{"kind":"blank","quote":"x","question":"no gap here","correct":"","distractors":[],"accepted":["x"],"explanation":""}]}`,
+		"grammar_listening_check": `{"answers":[{"n":1,"answer":"Kaffee","sure":true}]}`,
 		"grammar_writing": `{"items":[{"english":"I would like a coffee.","german":"Ich hätte gern einen Kaffee.","alternatives":[],"hint":"hätte gern"},` +
 			`{"english":"If I were rich, I would travel.","german":"Wenn ich reich wäre, würde ich reisen.","alternatives":[],"hint":"wäre"}]}`,
 		"writing_feedback": `{"items":[{"score":10,"verdict":"correct","corrected":"Ich hätte gern einen Kaffee.","feedback":"Đúng."},` +
@@ -54,10 +55,10 @@ func fakeGrammarChat(t *testing.T) *httptest.Server {
 			return
 		}
 		// Exercises are built around the learner's own words (sent with the set below).
-		if strings.HasPrefix(string(m[1]), "grammar_") && !strings.Contains(string(body), "Kaffee; Reise") {
+		if strings.HasPrefix(string(m[1]), "grammar_") && string(m[1]) != "grammar_listening_check" && !strings.Contains(string(body), "Kaffee; Reise") {
 			t.Errorf("%s prompt lacks the deduplicated words", m[1])
 		}
-		if strings.HasPrefix(string(m[1]), "grammar_") && !strings.Contains(string(body), "own list") {
+		if strings.HasPrefix(string(m[1]), "grammar_") && string(m[1]) != "grammar_listening_check" && !strings.Contains(string(body), "own list") {
 			t.Errorf("%s prompt lacks the learner's words", m[1])
 		}
 		json.NewEncoder(w).Encode(map[string]any{
@@ -151,7 +152,7 @@ func TestGrammarSets(t *testing.T) {
 		t.Errorf("writing/errors: %+v %v", content.Writing, content.Errors)
 	case g.AudioURL != "": // no Azure key: the browser reads the script
 		t.Errorf("audio without azure: %q", g.AudioURL)
-	case math.Abs(g.CostUSD-5*0.00625) > 1e-9: // 5 calls of 1000 in + 500 out tokens on gpt-5.1
+	case math.Abs(g.CostUSD-6*0.00625) > 1e-9: // 6 calls (listening is checked once more) of 1000 in + 500 out tokens on gpt-5.1
 		t.Errorf("cost: %v", g.CostUSD)
 	}
 
@@ -180,7 +181,7 @@ func TestGrammarSets(t *testing.T) {
 
 	var list []store.GrammarSet
 	c.json("GET", "/api/grammar", nil, &list)
-	if len(list) != 1 || list[0].Title != "Konjunktiv II" || !list[0].Started || math.Abs(list[0].CostUSD-6*0.00625) > 1e-9 {
+	if len(list) != 1 || list[0].Title != "Konjunktiv II" || !list[0].Started || math.Abs(list[0].CostUSD-7*0.00625) > 1e-9 {
 		t.Errorf("list: %+v", list)
 	}
 	// A part written again: new questions, its answers start afresh, the
@@ -231,7 +232,7 @@ func TestGrammarSets(t *testing.T) {
 	if len(g.WritingFeedback) != 0 && string(g.WritingFeedback) != "null" {
 		t.Errorf("old writing grading kept: %s", g.WritingFeedback)
 	}
-	if math.Abs(g.CostUSD-8*0.00625) > 1e-9 {
+	if math.Abs(g.CostUSD-9*0.00625) > 1e-9 {
 		t.Errorf("cost after two parts: %v", g.CostUSD)
 	}
 

@@ -171,27 +171,6 @@ var readingSchema = obj(map[string]any{
 	"questions": arr(choiceSchema),
 })
 
-var listeningSchema = obj(map[string]any{
-	"title":     str("German title"),
-	"situation": str("One Vietnamese sentence describing the situation, shown before listening"),
-	"speakers": arr(obj(map[string]any{
-		"name":   str("First name"),
-		"gender": map[string]any{"type": "string", "enum": []string{"female", "male"}},
-	})),
-	"segments": arr(obj(map[string]any{
-		"speaker": str("Name of one of the speakers"),
-		"text":    str("What they say, in German"),
-	})),
-	"questions": arr(obj(map[string]any{
-		"kind":        map[string]any{"type": "string", "enum": []string{"choice", "blank"}},
-		"question":    str("choice: a German question about the recording. blank: a sentence quoted from the recording with ___ replacing 1-3 words"),
-		"options":     strs("choice: exactly 4 German options. blank: empty"),
-		"answer":      integer("choice: 0-based index of the correct option. blank: -1"),
-		"accepted":    strs("blank: the exact missing words as spoken, plus any equally correct variants. choice: empty"),
-		"explanation": str("Short English explanation"),
-	})),
-})
-
 var writingSchema = obj(map[string]any{
 	"items": arr(obj(map[string]any{
 		"english":      str("The English sentence to translate"),
@@ -286,44 +265,6 @@ func (c *Client) GrammarReading(ctx context.Context, m Model, r GrammarRequest) 
 		return nil, u, err
 	}
 	out.Questions = cleanChoices(out.Questions, r.Sections.Reading)
-	return &out, u, nil
-}
-
-func (c *Client) GrammarListening(ctx context.Context, m Model, r GrammarRequest) (*Listening, *Usage, error) {
-	prompt := grammarIntro(r) + fmt.Sprintf(
-		"Write a German listening script: a natural conversation between 2 speakers (one female, one male) of %s turns, "+
-			"or a short radio announcement/podcast by 1 speaker, that uses the grammar point many times. No stage directions. "+
-			"Then exactly %d questions, about half \"choice\" (comprehension, 4 options) and half \"blank\" (a sentence quoted word for word from the script with 1-3 words replaced by ___; prefer words showing the grammar point).\n"+
-			"For \"choice\" questions: "+singleAnswer,
-		listeningLines[r.Level], r.Sections.Listening)
-	var out Listening
-	u, err := c.chatJSONWith(ctx, c.slow, m, grammarSystem, prompt, "grammar_listening", listeningSchema, 0.8, &out)
-	if err != nil {
-		return nil, u, err
-	}
-	var qs []ListeningQuestion
-	for _, q := range out.Questions {
-		switch q.Kind {
-		case "choice":
-			if !validOptions(q.Options, q.Answer) {
-				continue
-			}
-			q.Options, q.Answer = shuffleOptions(q.Options, q.Answer)
-			q.Accepted = []string{}
-		case "blank":
-			if !strings.Contains(q.Question, "___") || len(q.Accepted) == 0 {
-				continue
-			}
-			q.Options, q.Answer = []string{}, -1
-		default:
-			continue
-		}
-		qs = append(qs, q)
-	}
-	out.Questions = capped(qs, r.Sections.Listening)
-	if len(out.Segments) == 0 {
-		return nil, u, fmt.Errorf("listening script is empty")
-	}
 	return &out, u, nil
 }
 
