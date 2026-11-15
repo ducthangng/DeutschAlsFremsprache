@@ -53,7 +53,7 @@ function scores(c: GrammarContent, a: GrammarAnswers, writingPoints: number | nu
 /** Answered, correct and checked per section, for the overview and the list of sets. */
 export function progressOf(c: GrammarContent, a: GrammarAnswers, fb: GrammarSet["writingFeedback"]): GrammarProgress {
   const filled = (r: Record<number, number | string>) => Object.values(r).filter((v) => typeof v === "number" || v.trim()).length;
-  const sc = scores(c, a, fb ? fb.items.reduce((s, x) => s + x.score, 0) : null);
+  const sc = scores(c, a, fb ? fb.items.reduce((s, x) => s + (x?.score ?? 0), 0) : null);
   const out: GrammarProgress = {};
   const add = (k: GrammarSection, questions: number) => {
     if (questions === 0) return;
@@ -237,7 +237,7 @@ export default function GrammarRun() {
 
   const c = set.content;
   const fb = set.writingFeedback ?? null;
-  const writingPoints = fb ? fb.items.reduce((s, x) => s + x.score, 0) : null;
+  const writingPoints = fb ? fb.items.reduce((s, x) => s + (x?.score ?? 0), 0) : null;
   const sc = scores(c, answers, writingPoints);
   const progress = progressOf(c, answers, fb);
   const present = SECTIONS.filter((x) => progress[x.key]);
@@ -594,6 +594,50 @@ function Explanation({ ok, children }: { ok: boolean; children: ReactNode }) {
   return <div className={`mt-2 rounded-lg px-3 py-2 text-sm ${ok ? "bg-emerald-50 text-emerald-800" : "bg-red-50 text-red-800"}`}>{children}</div>;
 }
 
+/** What each German form of address means, shown under a writing task with "you". */
+const ADDRESS: Record<string, string> = {
+  du: "thân mật, nói với 1 người (bạn bè, gia đình, trẻ em)",
+  ihr: "thân mật, nói với nhiều người",
+  Sie: "lịch sự, trang trọng (người lạ, khách hàng, cấp trên) — dùng Sie / Ihr, động từ chia như sie (họ)",
+  man: "\"you\" chung chung, nghĩa là người ta",
+};
+
+/**
+ * The result of a multiple-choice question after checking: the learner's pick,
+ * the correct option and, for gap-fill items, the whole sentence with the
+ * answer filled in, then the explanation.
+ */
+function ChoiceResult({ q, picked }: { q: { question: string; options: string[]; answer: number; explanation: string }; picked?: number }) {
+  const ok = picked === q.answer;
+  const letter = (j: number) => "ABCD"[j] ?? String(j + 1);
+  const correct = q.options[q.answer] ?? "";
+  const full = q.question.includes("___") ? q.question.replace("___", correct) : "";
+  return (
+    <Explanation ok={ok}>
+      <p className="font-medium">
+        {picked === undefined ? (
+          "Chưa trả lời."
+        ) : ok ? (
+          <>✓ Đúng: {letter(q.answer)} · {correct}</>
+        ) : (
+          <>
+            ✗ Bạn chọn {letter(picked)} · {q.options[picked]}. Đáp án đúng: {letter(q.answer)} · {correct}
+          </>
+        )}
+      </p>
+      {full && (
+        <p className="mt-1">
+          Câu đầy đủ:{" "}
+          <b data-lookup data-sentence={full}>
+            {full}
+          </b>
+        </p>
+      )}
+      {q.explanation && <p className="mt-1 opacity-90">{q.explanation}</p>}
+    </Explanation>
+  );
+}
+
 function ChoiceList({
   questions,
   answers,
@@ -614,12 +658,7 @@ function ChoiceList({
             {q.question}
           </p>
           <ChoiceOptions q={q} picked={answers[i]} checked={checked} onPick={(j) => onAnswer(i, j)} />
-          {checked && (
-            <Explanation ok={answers[i] === q.answer}>
-              {answers[i] === undefined && "Chưa trả lời. "}
-              {q.explanation}
-            </Explanation>
-          )}
+          {checked && <ChoiceResult q={q} picked={answers[i]} />}
         </li>
       ))}
     </ol>
@@ -809,7 +848,7 @@ function Listening({
                 {q.question}
               </p>
               <ChoiceOptions q={q} picked={answers[i] as number | undefined} checked={checked} onPick={(j) => onAnswer(i, j)} />
-              {checked && <Explanation ok={answers[i] === q.answer}>{q.explanation}</Explanation>}
+              {checked && <ChoiceResult q={q} picked={answers[i] as number | undefined} />}
             </li>
           ) : (
             <BlankItem key={i} n={i + 1} q={q} value={(answers[i] as string) ?? ""} checked={checked} onChange={(v) => onAnswer(i, v)} />
@@ -930,23 +969,27 @@ function Writing({
   onAnswer: (i: number, v: string) => void;
   onGraded: (fb: NonNullable<GrammarSet["writingFeedback"]>, costUsd: number) => void;
 }) {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+  // What is being graded: every sentence, one of them, or nothing.
+  const [grading, setGrading] = useState<"all" | number | null>(null);
+  const busy = grading !== null;
+  const [error, setError] = useState<{ at: "all" | number; text: string } | null>(null);
   const [hints, setHints] = useState<Set<number>>(new Set());
   const fb = set.writingFeedback;
   const filled = tasks.filter((_, i) => (answers[i] ?? "").trim()).length;
-  const total = fb ? fb.items.reduce((s, x) => s + x.score, 0) : 0;
+  const total = fb ? fb.items.reduce((s, x) => s + (x?.score ?? 0), 0) : 0;
+  const gradedCount = fb ? fb.items.filter(Boolean).length : 0;
 
-  async function grade() {
-    setBusy(true);
-    setError("");
+  async function grade(only?: number) {
+    const at = only ?? "all";
+    setGrading(at);
+    setError(null);
     try {
-      const res = await api.gradeGrammarWriting(set.id, tasks.map((_, i) => answers[i] ?? ""));
+      const res = await api.gradeGrammarWriting(set.id, tasks.map((_, i) => answers[i] ?? ""), only);
       onGraded(res.writingFeedback, res.costUsd);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Không chấm được");
+      setError({ at, text: e instanceof Error ? e.message : "Không chấm được" });
     } finally {
-      setBusy(false);
+      setGrading(null);
     }
   }
 
@@ -958,15 +1001,23 @@ function Writing({
       </div>
       <ol className="space-y-6">
         {tasks.map((t, i) => {
-          const item = fb?.items[i];
-          const stale = item && (fb!.answers[i] ?? "") !== (answers[i] ?? "").trim();
+          const item = fb?.items[i] ?? null;
+          const stale = !!item && (fb!.answers[i] ?? "") !== (answers[i] ?? "").trim();
+          const typed = !!(answers[i] ?? "").trim();
           return (
             <li key={i}>
               <div className="flex items-start justify-between gap-3">
-                <p className="font-medium text-slate-900">
-                  <span className="mr-2 text-slate-400">{i + 1}.</span>
-                  {t.english}
-                </p>
+                <div>
+                  <p className="font-medium text-slate-900">
+                    <span className="mr-2 text-slate-400">{i + 1}.</span>
+                    {t.english}
+                  </p>
+                  {t.address && ADDRESS[t.address] && (
+                    <p className="mt-1 text-xs text-slate-500">
+                      <span className="rounded bg-indigo-50 px-1.5 py-0.5 font-semibold text-indigo-700">you = {t.address}</span> {ADDRESS[t.address]}
+                    </p>
+                  )}
+                </div>
                 {t.hint && (
                   <button
                     onClick={() => setHints((h) => new Set(h).add(i))}
@@ -986,6 +1037,27 @@ function Writing({
                 placeholder="Câu tiếng Đức của bạn…"
                 className="mt-2 w-full rounded-lg border border-slate-300 bg-transparent px-3 py-2 outline-none focus:border-indigo-500"
               />
+              <div className="mt-1 flex flex-wrap items-center justify-end gap-2">
+                {error?.at === i && <span className="text-sm text-red-600">{error.text}</span>}
+                <button
+                  onClick={() => grade(i)}
+                  disabled={busy || !typed}
+                  title={typed ? "Chỉ chấm câu này, các câu khác giữ nguyên kết quả" : "Viết câu trả lời trước"}
+                  className={`flex items-center gap-1.5 rounded-lg px-3 py-1 text-sm font-medium ring-1 disabled:opacity-40 ${
+                    stale ? "bg-indigo-600 text-white ring-indigo-600 hover:bg-indigo-500" : "text-indigo-700 ring-indigo-200 hover:bg-indigo-50"
+                  }`}
+                >
+                  {grading === i ? (
+                    <>
+                      <Spinner className="h-3.5 w-3.5" /> Đang chấm…
+                    </>
+                  ) : item ? (
+                    "↻ Chấm lại câu này"
+                  ) : (
+                    "🤖 Chấm câu này"
+                  )}
+                </button>
+              </div>
               {item && (
                 <div className={`mt-2 rounded-lg px-3 py-2 text-sm ${VERDICT[item.verdict].cls}`}>
                   <p className="font-semibold">
@@ -1008,21 +1080,22 @@ function Writing({
         {fb && (
           <span className="text-lg font-semibold text-slate-900">
             {total}/{tasks.length * 10} điểm
+            {gradedCount < tasks.length && <span className="ml-2 text-sm font-normal text-slate-500">(đã chấm {gradedCount}/{tasks.length} câu)</span>}
           </span>
         )}
-        <button onClick={grade} disabled={busy || filled === 0} className="flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-2 font-semibold text-white hover:bg-indigo-500 disabled:opacity-50">
-          {busy ? (
+        <button onClick={() => grade()} disabled={busy || filled === 0} className="flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-2 font-semibold text-white hover:bg-indigo-500 disabled:opacity-50">
+          {grading === "all" ? (
             <>
               <Spinner className="h-4 w-4 border-white/30 border-t-white" /> Đang chấm…
             </>
           ) : fb ? (
-            "↻ Chấm lại"
+            "↻ Chấm lại tất cả"
           ) : (
             `🤖 Chấm bằng AI (${filled}/${tasks.length})`
           )}
         </button>
         <span className="text-xs text-slate-400">Dùng model {set.model}, có tính phí.</span>
-        {error && <p className="w-full text-sm text-red-600">{error}</p>}
+        {error?.at === "all" && <p className="w-full text-sm text-red-600">{error.text}</p>}
       </div>
     </section>
   );

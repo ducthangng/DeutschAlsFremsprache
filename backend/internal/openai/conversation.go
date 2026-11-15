@@ -281,3 +281,50 @@ func glossName(language string) string {
 	_, name := topic.Gloss(language)
 	return name
 }
+
+// field is one property of an ordered schema object.
+type field struct {
+	name   string
+	schema any
+}
+
+type fields []field
+
+// MarshalJSON keeps the properties in the order given. Models write their
+// JSON in schema order, and a Go map would be sorted by name, putting e.g.
+// "answer" before "question": the model would then pick the answer before
+// writing the question it belongs to.
+func (fs fields) MarshalJSON() ([]byte, error) {
+	var b strings.Builder
+	b.WriteByte('{')
+	for i, f := range fs {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		k, err := json.Marshal(f.name)
+		if err != nil {
+			return nil, err
+		}
+		v, err := json.Marshal(f.schema)
+		if err != nil {
+			return nil, err
+		}
+		b.Write(k)
+		b.WriteByte(':')
+		b.Write(v)
+	}
+	b.WriteByte('}')
+	return []byte(b.String()), nil
+}
+
+// ordered builds a strict JSON-schema object whose properties are written in
+// the given order; every property is required.
+func ordered(fs ...field) map[string]any {
+	req := make([]string, len(fs))
+	for i, f := range fs {
+		req[i] = f.name
+	}
+	return map[string]any{"type": "object", "additionalProperties": false, "required": req, "properties": fields(fs)}
+}
+
+func prop(name string, schema any) field { return field{name, schema} }

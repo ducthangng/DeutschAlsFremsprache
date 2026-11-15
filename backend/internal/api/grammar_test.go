@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"regexp"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -22,16 +23,16 @@ import (
 func fakeGrammarChat(t *testing.T) *httptest.Server {
 	answers := map[string]string{
 		"grammar_core": `{"title":"Konjunktiv II","overview":"Dùng để nói điều ước.","multipleChoice":[` +
-			`{"question":"Wenn ich Zeit ___, käme ich.","options":["hätte","habe","hatte","haben"],"answer":0,"explanation":"Konjunktiv II của haben"},` +
-			`{"question":"broken","options":["a","b"],"answer":7,"explanation":""}]}`,
+			`{"question":"Wenn ich Zeit ___, käme ich.","correct":"hätte","distractors":["habe","hatte","haben"],"explanation":"Konjunktiv II của haben"},` +
+			`{"question":"Er ___ langsam.","correct":"sprichst","distractors":["spricht","spreche","sprechen"],"explanation":"er spricht"},` +
+			`{"question":"broken","correct":"a","distractors":["a"],"explanation":""}]}`,
 		"grammar_rearrange": `{"items":[{"answer":"Ich würde gern kommen.","fragments":["Ich","würde","gern","kommen"],"alternatives":["Gern würde ich kommen."],"translation":"Tôi rất muốn đến.","explanation":"Động từ ở vị trí 2"}]}`,
-		"grammar_reading":   `{"title":"Ein Traum","passage":"Wenn ich reich wäre, würde ich reisen.","questions":[{"question":"Was würde er tun?","options":["reisen","arbeiten","schlafen","kochen"],"answer":0,"explanation":"…"}]}`,
+		"grammar_reading":   `{"title":"Ein Traum","passage":"Wenn ich reich wäre, würde ich reisen.","questions":[{"question":"Was würde er tun?","correct":"reisen","distractors":["arbeiten","schlafen","kochen"],"explanation":"…"}]}`,
 		"grammar_listening": `{"title":"Im Café","situation":"Hai người bạn nói chuyện.","speakers":[{"name":"Lena","gender":"female"},{"name":"Jonas","gender":"male"}],` +
 			`"segments":[{"speaker":"Lena","text":"Ich hätte gern einen Kaffee."},{"speaker":"Jonas","text":"Ich würde lieber Tee trinken."}],"questions":[` +
 			`{"kind":"blank","quote":"Ich würde lieber Tee trinken.","question":"Ich ___ lieber Tee trinken.","correct":"","distractors":[],"accepted":["würde"],"explanation":""},` +
 			`{"kind":"choice","quote":"Ich hätte gern einen Kaffee.","question":"Was möchte Lena?","correct":"Kaffee","distractors":["Tee","Wasser","Saft"],"accepted":[],"explanation":""},` +
 			`{"kind":"blank","quote":"x","question":"no gap here","correct":"","distractors":[],"accepted":["x"],"explanation":""}]}`,
-		"grammar_listening_check": `{"answers":[{"n":1,"answer":"Kaffee","sure":true}]}`,
 		"grammar_writing": `{"items":[{"english":"I would like a coffee.","german":"Ich hätte gern einen Kaffee.","alternatives":[],"hint":"hätte gern"},` +
 			`{"english":"If I were rich, I would travel.","german":"Wenn ich reich wäre, würde ich reisen.","alternatives":[],"hint":"wäre"}]}`,
 		"writing_feedback": `{"items":[{"score":10,"verdict":"correct","corrected":"Ich hätte gern einen Kaffee.","feedback":"Đúng."},` +
@@ -49,16 +50,53 @@ func fakeGrammarChat(t *testing.T) *httptest.Server {
 			t.Errorf("model %q, reasoning %q", req.Model, req.ReasoningEffort)
 		}
 		m := nameRE.FindSubmatch(body)
+		if m != nil && string(m[1]) == "writing_feedback" && strings.Count(string(body), "Learner:") == 1 {
+			// One sentence graded again on its own.
+			json.NewEncoder(w).Encode(map[string]any{
+				"choices": []any{map[string]any{"message": map[string]any{"content": `{"items":[{"corrected":"Wenn ich reich wäre, würde ich reisen.","feedback":"Fast.","verdict":"minor","score":9}]}`}, "finish_reason": "stop"}},
+				"usage":   map[string]int{"prompt_tokens": 1000, "completion_tokens": 500},
+			})
+			return
+		}
+		if m != nil && string(m[1]) == "grammar_answer_check" {
+			// The second answering: right for every question but "Er ___ langsam."
+			// whose intended answer ("sprichst") is wrong and must be dropped.
+			type hit struct {
+				at     int
+				answer string
+			}
+			var hits []hit
+			for _, q := range []struct{ has, answer string }{{"Wenn ich Zeit", "hätte"}, {"Er ___ langsam", "spricht"}, {"Was würde er tun", "reisen"}, {"Was möchte Lena", "B) Kaffee"}} {
+				if at := strings.Index(string(body), q.has); at >= 0 {
+					hits = append(hits, hit{at, q.answer})
+				}
+			}
+			sort.Slice(hits, func(i, j int) bool { return hits[i].at < hits[j].at })
+			var as []string
+			for _, h := range hits {
+				as = append(as, h.answer)
+			}
+			var items []map[string]any
+			for i, a := range as {
+				items = append(items, map[string]any{"n": i + 1, "reasoning": "", "answer": a, "sure": true})
+			}
+			content, _ := json.Marshal(map[string]any{"answers": items})
+			json.NewEncoder(w).Encode(map[string]any{
+				"choices": []any{map[string]any{"message": map[string]any{"content": string(content)}, "finish_reason": "stop"}},
+				"usage":   map[string]int{"prompt_tokens": 1000, "completion_tokens": 500},
+			})
+			return
+		}
 		if m == nil || answers[string(m[1])] == "" {
 			t.Errorf("unexpected chat request: %s", body)
 			http.Error(w, "unexpected", 500)
 			return
 		}
 		// Exercises are built around the learner's own words (sent with the set below).
-		if strings.HasPrefix(string(m[1]), "grammar_") && string(m[1]) != "grammar_listening_check" && !strings.Contains(string(body), "Kaffee; Reise") {
+		if strings.HasPrefix(string(m[1]), "grammar_") && string(m[1]) != "grammar_answer_check" && !strings.Contains(string(body), "Kaffee; Reise") {
 			t.Errorf("%s prompt lacks the deduplicated words", m[1])
 		}
-		if strings.HasPrefix(string(m[1]), "grammar_") && string(m[1]) != "grammar_listening_check" && !strings.Contains(string(body), "own list") {
+		if strings.HasPrefix(string(m[1]), "grammar_") && string(m[1]) != "grammar_answer_check" && !strings.Contains(string(body), "own list") {
 			t.Errorf("%s prompt lacks the learner's words", m[1])
 		}
 		json.NewEncoder(w).Encode(map[string]any{
@@ -136,7 +174,7 @@ func TestGrammarSets(t *testing.T) {
 	switch {
 	case content.Title != "Konjunktiv II" || content.Overview == "":
 		t.Errorf("core: %+v", content)
-	case len(content.MultipleChoice) != 1: // the broken question is dropped
+	case len(content.MultipleChoice) != 1: // the broken question and the one with a wrong answer are dropped
 		t.Errorf("multiple choice: %+v", content.MultipleChoice)
 	case content.MultipleChoice[0].Options[content.MultipleChoice[0].Answer] != "hätte": // options are shuffled, the answer follows
 		t.Errorf("answer lost in shuffle: %+v", content.MultipleChoice[0])
@@ -152,7 +190,7 @@ func TestGrammarSets(t *testing.T) {
 		t.Errorf("writing/errors: %+v %v", content.Writing, content.Errors)
 	case g.AudioURL != "": // no Azure key: the browser reads the script
 		t.Errorf("audio without azure: %q", g.AudioURL)
-	case math.Abs(g.CostUSD-6*0.00625) > 1e-9: // 6 calls (listening is checked once more) of 1000 in + 500 out tokens on gpt-5.1
+	case math.Abs(g.CostUSD-8*0.00625) > 1e-9: // 8 calls (choice, reading and listening answers are checked once more) of 1000 in + 500 out tokens on gpt-5.1
 		t.Errorf("cost: %v", g.CostUSD)
 	}
 
@@ -178,10 +216,21 @@ func TestGrammarSets(t *testing.T) {
 	if fb := graded.WritingFeedback; len(fb.Items) != 2 || fb.Items[1].Score != 10 || fb.Answers[0] != "Ich hätte gern einen Kaffee." {
 		t.Errorf("feedback: %+v", fb)
 	}
+	// One sentence graded again: only its result changes.
+	if code := c.json("POST", path+"/writing", map[string]any{"answers": []string{"", "Wenn ich reich wär"}, "only": 2}, nil); code != 400 {
+		t.Errorf("only out of range: %d", code)
+	}
+	if code := c.json("POST", path+"/writing", map[string]any{"answers": []string{"geändert", " Wenn ich reich wär "}, "only": 1}, &graded); code != 200 {
+		t.Fatalf("grade one sentence: %d", code)
+	}
+	if fb := graded.WritingFeedback; len(fb.Items) != 2 || fb.Items[1].Score != 9 || fb.Answers[1] != "Wenn ich reich wär" ||
+		fb.Items[0].Score != 10 || fb.Answers[0] != "Ich hätte gern einen Kaffee." {
+		t.Errorf("feedback after grading one sentence: %+v", fb)
+	}
 
 	var list []store.GrammarSet
 	c.json("GET", "/api/grammar", nil, &list)
-	if len(list) != 1 || list[0].Title != "Konjunktiv II" || !list[0].Started || math.Abs(list[0].CostUSD-7*0.00625) > 1e-9 {
+	if len(list) != 1 || list[0].Title != "Konjunktiv II" || !list[0].Started || math.Abs(list[0].CostUSD-10*0.00625) > 1e-9 {
 		t.Errorf("list: %+v", list)
 	}
 	// A part written again: new questions, its answers start afresh, the
@@ -232,7 +281,7 @@ func TestGrammarSets(t *testing.T) {
 	if len(g.WritingFeedback) != 0 && string(g.WritingFeedback) != "null" {
 		t.Errorf("old writing grading kept: %s", g.WritingFeedback)
 	}
-	if math.Abs(g.CostUSD-9*0.00625) > 1e-9 {
+	if math.Abs(g.CostUSD-12*0.00625) > 1e-9 {
 		t.Errorf("cost after two parts: %v", g.CostUSD)
 	}
 

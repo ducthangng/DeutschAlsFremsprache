@@ -595,7 +595,7 @@ export interface GrammarContent {
     segments: { speaker: string; text: string }[];
     questions: ListeningQuestion[];
   } | null;
-  writing: { english: string; german: string; alternatives: string[]; hint: string }[];
+  writing: { english: string; address?: "du" | "ihr" | "Sie" | "man" | ""; german: string; alternatives: string[]; hint: string }[];
   /** Sections that could not be generated (plus "listeningAudio"), with the reason. */
   errors?: Partial<Record<GrammarSection | "overview" | "listeningAudio", string>>;
 }
@@ -628,7 +628,8 @@ export type GrammarProgress = Partial<Record<GrammarSection, GrammarPartProgress
 export interface WritingFeedback {
   /** The answers that were graded. */
   answers: string[];
-  items: { score: number; verdict: "correct" | "minor" | "wrong"; corrected: string; feedback: string }[];
+  /** null for a sentence not graded yet (others were graded one by one). */
+  items: ({ score: number; verdict: "correct" | "minor" | "wrong"; corrected: string; feedback: string } | null)[];
 }
 
 export interface GrammarSet {
@@ -916,8 +917,9 @@ export const api = {
   getGrammarSet: (id: number) => json<GrammarSet>(`/grammar/${id}`),
   createGrammarSet: (req: GrammarRequest) => json<GrammarSet>("/grammar", "POST", req),
   saveGrammarAnswers: (id: number, answers: GrammarAnswers) => json<void>(`/grammar/${id}/answers`, "PUT", { answers }),
-  gradeGrammarWriting: (id: number, answers: string[]) =>
-    json<{ writingFeedback: WritingFeedback; costUsd: number }>(`/grammar/${id}/writing`, "POST", { answers }),
+  /** Grades all sentences, or with `only` just that one (the others keep their results). */
+  gradeGrammarWriting: (id: number, answers: string[], only?: number) =>
+    json<{ writingFeedback: WritingFeedback; costUsd: number }>(`/grammar/${id}/writing`, "POST", { answers, only }),
   deleteGrammarSet: (id: number) => json<void>(`/grammar/${id}`, "DELETE"),
   /** Add a part the set lacks, or write an existing part again (its answers start afresh). */
   addGrammarSection: (id: number, section: GrammarSection, count: number) =>

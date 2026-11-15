@@ -540,6 +540,8 @@ func (s *Server) gradeGrammarWriting(w http.ResponseWriter, r *http.Request) {
 	}
 	var in struct {
 		Answers []string `json:"answers"`
+		// Only grades just this sentence (0-based) and keeps the others' results.
+		Only *int `json:"only"`
 	}
 	if !decodeJSON(w, r, &in) {
 		return
@@ -559,7 +561,11 @@ func (s *Server) gradeGrammarWriting(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "số câu trả lời không khớp")
 		return
 	}
-	answers := make([]openai.WritingAnswer, len(in.Answers))
+	if in.Only != nil && (*in.Only < 0 || *in.Only >= len(content.Writing)) {
+		writeError(w, http.StatusBadRequest, "không có câu này")
+		return
+	}
+	var answers []openai.WritingAnswer
 	for i, a := range in.Answers {
 		a = strings.TrimSpace(a)
 		if utf8.RuneCountInString(a) > 500 {
@@ -567,7 +573,9 @@ func (s *Server) gradeGrammarWriting(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		in.Answers[i] = a
-		answers[i] = openai.WritingAnswer{English: content.Writing[i].English, Reference: content.Writing[i].German, Answer: a}
+		if in.Only == nil || *in.Only == i {
+			answers = append(answers, openai.WritingAnswer{English: content.Writing[i].English, Reference: content.Writing[i].German, Answer: a})
+		}
 	}
 	m, ok := openai.GrammarModel(g.Model)
 	if !ok {
@@ -590,7 +598,12 @@ func (s *Server) gradeGrammarWriting(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadGateway, "không chấm được bài viết, vui lòng thử lại")
 		return
 	}
-	feedback, _ := json.Marshal(map[string]any{"answers": in.Answers, "items": items})
+	var feedback []byte
+	if in.Only == nil {
+		feedback, _ = json.Marshal(map[string]any{"answers": in.Answers, "items": items})
+	} else {
+		feedback = mergeWritingFeedback(g.WritingFeedback, len(content.Writing), *in.Only, in.Answers[*in.Only], items[0])
+	}
 	if err := s.store.SaveGrammarWritingFeedback(ctx, uid, id, feedback, cost); err != nil {
 		writeStoreError(w, err)
 		return
@@ -608,4 +621,22 @@ func (s *Server) deleteGrammarSet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// mergeWritingFeedback puts one sentence's new grading into the saved
+// results. Sentences never graded have a null item.
+func mergeWritingFeedback(old json.RawMessage, n, i int, answer string, item openai.WritingFeedback) []byte {
+	var fb struct {
+		Answers []string                  `json:"answers"`
+		Items   []*openai.WritingFeedback `json:"items"`
+	}
+	if len(old) > 0 {
+		json.Unmarshal(old, &fb)
+	}
+	if len(fb.Answers) != n || len(fb.Items) != n {
+		fb.Answers, fb.Items = make([]string, n), make([]*openai.WritingFeedback, n)
+	}
+	fb.Answers[i], fb.Items[i] = answer, &item
+	out, _ := json.Marshal(fb)
+	return out
 }

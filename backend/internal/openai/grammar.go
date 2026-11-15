@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math/rand/v2"
+	"regexp"
 	"slices"
 	"strings"
 )
@@ -95,7 +96,9 @@ type Listening struct {
 }
 
 type WritingTask struct {
-	English      string   `json:"english"`
+	English string `json:"english"`
+	// Address is who "you" in English means: du | ihr | Sie | man ("" = no "you").
+	Address      string   `json:"address"`
 	German       string   `json:"german"` // reference translation
 	Alternatives []string `json:"alternatives"`
 	Hint         string   `json:"hint"` // English
@@ -142,48 +145,56 @@ func strs(desc string) map[string]any {
 	return map[string]any{"type": "array", "description": desc, "items": map[string]any{"type": "string"}}
 }
 
-var choiceSchema = obj(map[string]any{
-	"question":    str("The question in German; for gap-fill items the sentence with ___ marking the gap"),
-	"options":     strs("Exactly 4 different answer options in German; exactly one is correct, the other three are definitely wrong"),
-	"answer":      integer("0-based index of the single correct option"),
-	"explanation": str("Short explanation in English of why the answer is right (and the others wrong), naming the rule"),
-})
+// Schemas list what a value depends on first (see fields.MarshalJSON): the
+// question before its answer, the answer as text (models often point an
+// index at the wrong option) before the wrong options and the explanation.
+var choiceSchema = ordered(
+	prop("question", str("The question in German; for gap-fill items the sentence with ___ marking the gap")),
+	prop("correct", str("The one correct option in German. Decide it first and be certain it is right")),
+	prop("distractors", strs("Exactly 3 other options in German, each definitely wrong for this question, all different from correct and from each other")),
+	prop("explanation", str("Short explanation in English of why correct is right (and the others wrong), naming the rule; it must agree with correct")),
+)
 
-var coreSchema = obj(map[string]any{
-	"title":          str("Short German title for the exercise set"),
-	"overview":       str("Explanation of the grammar point in English: form, use, 2-3 German examples; 80-160 words, plain text with line breaks"),
-	"multipleChoice": arr(choiceSchema),
-})
+// rawChoice is a multiple-choice question as the model writes it.
+type rawChoice struct {
+	Question    string   `json:"question"`
+	Correct     string   `json:"correct"`
+	Distractors []string `json:"distractors"`
+	Explanation string   `json:"explanation"`
+}
 
-var rearrangeSchema = obj(map[string]any{
-	"items": arr(obj(map[string]any{
-		"answer":       str("The correct German sentence, with final punctuation"),
-		"fragments":    strs("The words/short chunks of answer without final punctuation, in a scrambled order; joined in the right order they give answer"),
-		"alternatives": strs("Other fully correct word orders of the same fragments (may be empty)"),
-		"translation":  str("English translation of answer"),
-		"explanation":  str("Short English explanation of the word order rule"),
-	})),
-})
+var coreSchema = ordered(
+	prop("title", str("Short German title for the exercise set")),
+	prop("overview", str("Explanation of the grammar point in English: form, use, 2-3 German examples; 80-160 words, plain text with line breaks")),
+	prop("multipleChoice", arr(choiceSchema)),
+)
 
-var readingSchema = obj(map[string]any{
-	"title":     str("German title of the text"),
-	"passage":   str("The German reading text, paragraphs separated by blank lines"),
-	"questions": arr(choiceSchema),
-})
+var rearrangeSchema = ordered(prop("items", arr(ordered(
+	prop("answer", str("The correct German sentence, with final punctuation")),
+	prop("fragments", strs("The words/short chunks of answer without final punctuation, in a scrambled order; joined in the right order they give answer")),
+	prop("alternatives", strs("Other fully correct word orders of the same fragments (may be empty)")),
+	prop("translation", str("English translation of answer")),
+	prop("explanation", str("Short English explanation of the word order rule")),
+))))
 
-var writingSchema = obj(map[string]any{
-	"items": arr(obj(map[string]any{
-		"english":      str("The English sentence to translate"),
-		"german":       str("The best German translation"),
-		"alternatives": strs("Other correct German translations (may be empty)"),
-		"hint":         str("Short English hint about the grammar needed, without giving the answer away"),
-	})),
-})
+var readingSchema = ordered(
+	prop("title", str("German title of the text")),
+	prop("passage", str("The German reading text, paragraphs separated by blank lines")),
+	prop("questions", arr(choiceSchema)),
+)
+
+var writingSchema = ordered(prop("items", arr(ordered(
+	prop("english", str("The English sentence to translate; if it contains you/your/yours/yourself, the form of address is marked right after the first such word: (du), (ihr), (Sie, formal) or (man)")),
+	prop("address", map[string]any{"type": "string", "enum": []string{"none", "du", "ihr", "Sie", "man"}, "description": "Who \"you\" refers to: none if the English has no you/your"}),
+	prop("german", str("The best German translation")),
+	prop("alternatives", strs("Other correct German translations (may be empty)")),
+	prop("hint", str("Short English hint about the grammar needed, without giving the answer away")),
+))))
 
 // ---- prompts ----
 
-var readingWords = map[string]string{"A1": "100-150", "A2": "150-200", "B1": "200-280", "B2": "280-350", "C1": "350-450", "C2": "400-500"}
-var listeningLines = map[string]string{"A1": "8-10", "A2": "10-12", "B1": "12-16", "B2": "14-18", "C1": "16-20", "C2": "16-22"}
+var readingWords = map[string]string{"A1": "100-150", "A2": "120-200", "B1": "150-250", "B2": "200-300", "C1": "200-300", "C2": "200-300"}
+var listeningLines = map[string]string{"A1": "10-14", "A2": "12-18", "B1": "14-22", "B2": "16-24", "C1": "18-26", "C2": "18-28"}
 
 const grammarSystem = "You are an experienced teacher of German as a foreign language (DaF) who writes accurate, varied grammar exercises " +
 	"for Vietnamese learners. All German must be correct standard German (Hochdeutsch) and match the requested CEFR level. " +
@@ -200,6 +211,22 @@ const singleAnswer = "Multiple-choice rule: every question has exactly ONE corre
 func grammarIntro(r GrammarRequest) string {
 	return fmt.Sprintf("Grammar point: %s\nLearner level: CEFR %s\n%sEvery item must practise this grammar point; vary situations and sentence patterns, and never repeat an item.\n",
 		r.Grammar, r.Level, vocabBrief(r))
+}
+
+// textIntro is the brief for the reading and listening texts: unlike drill
+// items, a text must read like real German first and show the grammar point
+// only where it occurs naturally.
+func textIntro(r GrammarRequest, kind string) string {
+	vocab := vocabBrief(r)
+	if len(r.Vocabulary) > 0 {
+		vocab = "Vocabulary: where they fit the situation naturally, use some of these words from the learner's own list " +
+			"(inflect them as needed); never force a word in just to use it: " + strings.Join(r.Vocabulary, "; ") + "\n"
+	}
+	return fmt.Sprintf("Grammar point: %s\nLearner level: CEFR %s\n%s", r.Grammar, r.Level, vocab) +
+		"Naturalness comes first. Write " + kind + " a native speaker would really produce in this situation: realistic content and details, " +
+		"a natural flow of ideas, idiomatic everyday wording at the learner's level. Use the grammar point where a native speaker naturally would " +
+		"(a few times is enough); never bend a sentence to fit it in, never put it in every sentence, and avoid stilted textbook sentences, " +
+		"forced repetition and lists of unconnected facts. All German must be correct and sound natural to a native speaker.\n"
 }
 
 func vocabBrief(r GrammarRequest) string {
@@ -219,17 +246,19 @@ func (c *Client) GrammarCore(ctx context.Context, m Model, r GrammarRequest) (ti
 	prompt := grammarIntro(r) + fmt.Sprintf(
 		"Write a German title for the exercise set, an English overview of the grammar point, and exactly %d multiple-choice questions. "+
 			"Mix gap-fill sentences (with ___) and short questions; each has 4 plausible options that differ in the targeted form.\n"+singleAnswer,
-		r.Sections.MultipleChoice)
+		r.Sections.MultipleChoice+choiceExtra)
 	var out struct {
-		Title          string           `json:"title"`
-		Overview       string           `json:"overview"`
-		MultipleChoice []ChoiceQuestion `json:"multipleChoice"`
+		Title          string      `json:"title"`
+		Overview       string      `json:"overview"`
+		MultipleChoice []rawChoice `json:"multipleChoice"`
 	}
 	u, err = c.chatJSONWith(ctx, c.slow, m, grammarSystem, prompt, "grammar_core", coreSchema, 0.7, &out)
 	if err != nil {
 		return "", "", nil, u, err
 	}
-	return out.Title, out.Overview, cleanChoices(out.MultipleChoice, r.Sections.MultipleChoice), u, nil
+	qs = toChoices(out.MultipleChoice)
+	qs, u = c.verifyChoices(ctx, m, "", qs, u)
+	return out.Title, out.Overview, spread(qs, r.Sections.MultipleChoice), u, nil
 }
 
 func (c *Client) GrammarRearrange(ctx context.Context, m Model, r GrammarRequest) ([]RearrangeQuestion, *Usage, error) {
@@ -254,24 +283,64 @@ func (c *Client) GrammarRearrange(ctx context.Context, m Model, r GrammarRequest
 }
 
 func (c *Client) GrammarReading(ctx context.Context, m Model, r GrammarRequest) (*Reading, *Usage, error) {
-	prompt := grammarIntro(r) + fmt.Sprintf(
-		"Write a German reading text of %s words (an article, story, email or blog post) that uses the grammar point many times naturally, "+
-			"then exactly %d multiple-choice comprehension questions in German. Questions check understanding of the text; several should hinge on the grammar point. "+
+	prompt := textIntro(r, "a text") + fmt.Sprintf(
+		"Write a German reading text of about %s words, of a kind people really read (an email, a blog post, a short newspaper article, a forum post, a story), "+
+			"with a clear topic and a natural structure for that kind of text. "+
+			"Then exactly %d multiple-choice comprehension questions in German, in the order the text answers them. Questions check understanding of the text; some may hinge on the grammar point. "+
 			"The text must clearly support the one correct option and clearly rule out the others.\n"+singleAnswer,
-		readingWords[r.Level], r.Sections.Reading)
-	var out Reading
-	u, err := c.chatJSONWith(ctx, c.slow, m, grammarSystem, prompt, "grammar_reading", readingSchema, 0.8, &out)
+		readingWords[r.Level], r.Sections.Reading+choiceExtra)
+	var raw struct {
+		Title     string      `json:"title"`
+		Passage   string      `json:"passage"`
+		Questions []rawChoice `json:"questions"`
+	}
+	u, err := c.chatJSONWith(ctx, c.slow, m, grammarSystem, prompt, "grammar_reading", readingSchema, 0.8, &raw)
 	if err != nil {
 		return nil, u, err
 	}
-	out.Questions = cleanChoices(out.Questions, r.Sections.Reading)
-	return &out, u, nil
+	qs, u := c.verifyChoices(ctx, m, "Text:\n"+raw.Passage, toChoices(raw.Questions), u)
+	return &Reading{Title: raw.Title, Passage: raw.Passage, Questions: spread(qs, r.Sections.Reading)}, u, nil
+}
+
+// youRule: English "you" can be du, ihr, Sie or man in German, so the
+// learner is told which one is wanted.
+const youRule = "Form of address: English \"you\" is ambiguous, so whenever an English sentence contains you/your/yours/yourself/yourselves, " +
+	"decide who is addressed and write it in brackets right after the first such word: (du) for one friend, family member or child; " +
+	"(ihr) for several people one is informal with; (Sie, formal) for polite address to one or more people (strangers, customers, a boss); " +
+	"(man) for a generic \"you\" meaning people in general. Make the situation fit the choice, vary the forms across the set, and set address to match. " +
+	"german and every alternative must use exactly that form of address (pronoun, possessive and verb ending, e.g. Sie haben / Ihr Auto); " +
+	"never give an alternative with a different form of address. If the English has no \"you\", address is none and nothing is marked.\n"
+
+var youWord = regexp.MustCompile(`(?i)\byou(?:r|rs|rself|rselves)?\b`)
+
+var addressMark = map[string]string{"du": "(du)", "ihr": "(ihr)", "Sie": "(Sie, formal)", "man": "(man)"}
+
+// markAddress makes sure a sentence with "you" says which German form is
+// wanted (the marker is added after the first "you" if the model left it
+// out); a "you" sentence without a form of address is dropped.
+func markAddress(it WritingTask) (WritingTask, bool) {
+	if it.Address == "none" {
+		it.Address = ""
+	}
+	loc := youWord.FindStringIndex(it.English)
+	if loc == nil {
+		it.Address = ""
+		return it, true
+	}
+	mark, ok := addressMark[it.Address]
+	if !ok {
+		return it, false
+	}
+	if !strings.Contains(strings.ToLower(it.English), "("+strings.ToLower(it.Address)) {
+		it.English = it.English[:loc[1]] + " " + mark + it.English[loc[1]:]
+	}
+	return it, true
 }
 
 func (c *Client) GrammarWriting(ctx context.Context, m Model, r GrammarRequest) ([]WritingTask, *Usage, error) {
 	prompt := grammarIntro(r) + fmt.Sprintf(
 		"Write exactly %d English sentences for the learner to translate into German. Each translation must require the grammar point. "+
-			"Keep the English natural and unambiguous.",
+			"Keep the English natural and unambiguous.\n"+youRule,
 		r.Sections.Writing)
 	var out struct{ Items []WritingTask }
 	u, err := c.chatJSONWith(ctx, c.slow, m, grammarSystem, prompt, "grammar_writing", writingSchema, 0.7, &out)
@@ -281,21 +350,12 @@ func (c *Client) GrammarWriting(ctx context.Context, m Model, r GrammarRequest) 
 	var items []WritingTask
 	for _, it := range out.Items {
 		if strings.TrimSpace(it.English) != "" && strings.TrimSpace(it.German) != "" {
-			items = append(items, it)
+			if it, ok := markAddress(it); ok {
+				items = append(items, it)
+			}
 		}
 	}
 	return capped(items, r.Sections.Writing), u, nil
-}
-
-func cleanChoices(qs []ChoiceQuestion, n int) []ChoiceQuestion {
-	var out []ChoiceQuestion
-	for _, q := range qs {
-		if strings.TrimSpace(q.Question) != "" && validOptions(q.Options, q.Answer) {
-			q.Options, q.Answer = shuffleOptions(q.Options, q.Answer)
-			out = append(out, q)
-		}
-	}
-	return capped(out, n)
 }
 
 func capped[T any](xs []T, n int) []T {
@@ -366,20 +426,20 @@ type WritingFeedback struct {
 	Feedback  string `json:"feedback"`
 }
 
-var writingFeedbackSchema = obj(map[string]any{
-	"items": arr(obj(map[string]any{
-		"score":     integer("0-10: 10 fully correct and natural, 7-9 small slips (spelling, a missing comma), 4-6 one real grammar error, 0-3 wrong or missing"),
-		"verdict":   map[string]any{"type": "string", "enum": []string{"correct", "minor", "wrong"}},
-		"corrected": str("The learner's sentence with the fewest changes that make it correct; the answer itself if already correct"),
-		"feedback":  str("1-2 sentences in simple English: what is wrong and why, focusing on the grammar point; praise briefly if correct"),
-	})),
-})
+var writingFeedbackSchema = ordered(prop("items", arr(ordered(
+	prop("corrected", str("The learner's sentence with the fewest changes that make it correct; the answer itself if already correct")),
+	prop("feedback", str("1-2 sentences in simple English: what is wrong and why, focusing on the grammar point; praise briefly if correct")),
+	prop("verdict", map[string]any{"type": "string", "enum": []string{"correct", "minor", "wrong"}}),
+	prop("score", integer("0-10: 10 fully correct and natural, 7-9 small slips (spelling, a missing comma), 4-6 one real grammar error, 0-3 wrong or missing")),
+))))
 
 // GradeWriting marks the learner's German translations, one result per answer.
 func (c *Client) GradeWriting(ctx context.Context, m Model, grammar, level string, answers []WritingAnswer) ([]WritingFeedback, *Usage, error) {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Grade a CEFR %s learner's English → German translations. Grammar point being practised: %s\n", level, grammar)
-	b.WriteString("Accept any correct, natural translation, not only the reference. Empty answers score 0. Return exactly one result per item, in order.\n\n")
+	b.WriteString("Accept any correct, natural translation, not only the reference. Empty answers score 0. Return exactly one result per item, in order.\n" +
+		"When the English marks the form of address after \"you\" ((du), (ihr), (Sie, formal) or (man)), the learner must use exactly that form " +
+		"(pronoun, possessive and verb ending); using another form is a real error (score at most 5) and the feedback says which form was asked for.\n\n")
 	for i, a := range answers {
 		fmt.Fprintf(&b, "%d. English: %s\n   Reference: %s\n   Learner: %s\n", i+1, a.English, a.Reference, a.Answer)
 	}
